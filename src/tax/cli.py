@@ -10,7 +10,7 @@ from typing import Optional
 
 import requests
 
-DEFAULT_SERVER = "https://138.249.127.23.nip.io"
+DEFAULT_SERVER = "https://tax.138-249-127-23.nip.io"
 CONFIG_PATH = Path.home() / ".config" / "tax" / "config.json"
 
 
@@ -29,11 +29,19 @@ def get_server(config: dict) -> str:
     return config.get("server", os.environ.get("TAX_SERVER", DEFAULT_SERVER))
 
 
+def get_api_key(config: dict) -> str:
+    return config.get("api_key", os.environ.get("TAX_API_KEY", ""))
+
+
 def get_device_token(config: dict) -> str:
     return config.get("device_token", os.environ.get("TAX_DEVICE_TOKEN", ""))
 
 
-def send_push(server: str, device_token: str, title: str, body: str, context: str = "", logs: str = "") -> dict:
+def get_headers(config: dict) -> dict:
+    return {"Authorization": f"Bearer {get_api_key(config)}"}
+
+
+def send_push(server: str, api_key: str, device_token: str, title: str, body: str, context: str = "", logs: str = "") -> dict:
     payload = {
         "device_token": device_token,
         "title": title,
@@ -41,17 +49,22 @@ def send_push(server: str, device_token: str, title: str, body: str, context: st
         "context": context,
         "logs": logs,
     }
-    r = requests.post(f"{server}/push", json=payload, timeout=30)
+    r = requests.post(f"{server}/push", json=payload, headers={"Authorization": f"Bearer {api_key}"}, timeout=30)
     r.raise_for_status()
     return r.json()
 
 
-def poll_reply(server: str, task_id: str, timeout: int = 60) -> Optional[str]:
+def poll_reply(server: str, api_key: str, task_id: str, timeout: int = 60) -> Optional[str]:
     """Long-poll for reply from iPhone."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            r = requests.get(f"{server}/task/{task_id}/reply", params={"wait": "true"}, timeout=35)
+            r = requests.get(
+                f"{server}/task/{task_id}/reply",
+                params={"wait": "true"},
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=35,
+            )
             r.raise_for_status()
             data = r.json()
             if data.get("ok") and data.get("reply"):
@@ -81,7 +94,12 @@ def run_agent(argv: list[str], detach: bool = False) -> int:
 
     config = load_config()
     server = get_server(config)
+    api_key = get_api_key(config)
     device_token = get_device_token(config)
+
+    if not api_key:
+        print("[tax] error: TAX_API_KEY not set. Add to ~/.zshrc: export TAX_API_KEY=*** then source ~/.zshrc", file=sys.stderr)
+        return 1
 
     if not device_token:
         print("[tax] error: device_token not configured. Run: tax config --device-token TOKEN", file=sys.stderr)
@@ -124,7 +142,7 @@ def run_agent(argv: list[str], detach: bool = False) -> int:
     context = f"Command: {' '.join(argv)}"
 
     try:
-        resp = send_push(server, device_token, title, body, context=context, logs=logs)
+        resp = send_push(server, api_key, device_token, title, body, context=context, logs=logs)
         task_id = resp.get("task_id")
         if not task_id:
             print("[tax] backend did not return task_id", file=sys.stderr)
@@ -140,7 +158,7 @@ def run_agent(argv: list[str], detach: bool = False) -> int:
 
     # Poll for reply
     print("[tax] waiting for reply from iPhone...")
-    reply = poll_reply(server, task_id, timeout=300)
+    reply = poll_reply(server, api_key, task_id, timeout=300)
     if reply:
         print(f"[tax] reply received: {reply}")
         run_agtermctl_command("type", value=reply)
@@ -155,6 +173,8 @@ def cmd_config(args: argparse.Namespace) -> int:
     config = load_config()
     if args.server:
         config["server"] = args.server
+    if args.api_key:
+        config["api_key"] = args.api_key
     if args.device_token:
         config["device_token"] = args.device_token
     save_config(config)
@@ -169,8 +189,12 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     config = load_config()
     server = get_server(config)
+    api_key = get_api_key(config)
+    if not api_key:
+        print("[tax] error: TAX_API_KEY not set. Add to ~/.zshrc: export TAX_API_KEY=*** then source ~/.zshrc", file=sys.stderr)
+        return 1
     try:
-        r = requests.get(f"{server}/tasks", timeout=10)
+        r = requests.get(f"{server}/tasks", headers={"Authorization": f"Bearer {api_key}"}, timeout=10)
         r.raise_for_status()
         data = r.json()
         for task in data.get("tasks", []):
@@ -187,7 +211,8 @@ def main() -> int:
 
     # config
     p_config = subparsers.add_parser("config", help="Configure tax CLI")
-    p_config.add_argument("--server", help="Backend URL, e.g. https://138.249.127.23.nip.io")
+    p_config.add_argument("--server", help="Backend URL, e.g. https://tax.138-249-127-23.nip.io")
+    p_config.add_argument("--api-key", help="Backend API key")
     p_config.add_argument("--device-token", help="iPhone device token for APNs")
     p_config.set_defaults(func=cmd_config)
 

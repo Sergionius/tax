@@ -9,16 +9,31 @@ from typing import Optional
 
 import httpx
 import jwt
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 DB_PATH = os.environ.get("TAX_DB_PATH", "/data/tax.db")
+API_KEY = os.environ.get("TAX_API_KEY", "")
 
 APNS_KEY_ID = os.environ.get("TAX_APNS_KEY_ID", "")
 APNS_TEAM_ID = os.environ.get("TAX_APNS_TEAM_ID", "")
 APNS_BUNDLE_ID = os.environ.get("TAX_APNS_BUNDLE_ID", "")
 APNS_KEY_PATH = os.environ.get("TAX_APNS_KEY_PATH", "")
 APNS_USE_SANDBOX = os.environ.get("TAX_APNS_USE_SANDBOX", "").lower() in ("1", "true", "yes")
+
+security = HTTPBearer()
+
+
+def require_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    if not API_KEY or token != API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return token
 
 
 def init_db():
@@ -128,7 +143,7 @@ async def send_apns(device_token: str, title: str, body: str, task_id: str):
             print(f"[tax-server] APNs error: {e}")
 
 
-@app.post("/push")
+@app.post("/push", dependencies=[Depends(require_api_key)])
 async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     task_id = os.urandom(16).hex()
     created_at = now_iso()
@@ -146,7 +161,7 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     return {"ok": True, "task_id": task_id}
 
 
-@app.post("/task/{task_id}/update")
+@app.post("/task/{task_id}/update", dependencies=[Depends(require_api_key)])
 async def update_task(task_id: str, update: TaskUpdate):
     conn = db_conn()
     cur = conn.cursor()
@@ -180,7 +195,7 @@ async def update_task(task_id: str, update: TaskUpdate):
     return {"ok": True, "task": row_to_dict(row)}
 
 
-@app.get("/task/{task_id}")
+@app.get("/task/{task_id}", dependencies=[Depends(require_api_key)])
 async def get_task(task_id: str):
     conn = db_conn()
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
@@ -190,7 +205,7 @@ async def get_task(task_id: str):
     return {"ok": True, "task": row_to_dict(row)}
 
 
-@app.post("/task/{task_id}/reply")
+@app.post("/task/{task_id}/reply", dependencies=[Depends(require_api_key)])
 async def reply(task_id: str, payload: ReplyPayload):
     conn = db_conn()
     cur = conn.cursor()
@@ -208,7 +223,7 @@ async def reply(task_id: str, payload: ReplyPayload):
     return {"ok": True, "task": row_to_dict(row)}
 
 
-@app.get("/task/{task_id}/reply")
+@app.get("/task/{task_id}/reply", dependencies=[Depends(require_api_key)])
 async def get_reply(task_id: str, wait: bool = False):
     timeout = 30 if wait else 0
     deadline = time.time() + timeout
@@ -228,7 +243,7 @@ async def get_reply(task_id: str, wait: bool = False):
     return {"ok": False, "reply": None}
 
 
-@app.get("/tasks")
+@app.get("/tasks", dependencies=[Depends(require_api_key)])
 async def list_tasks(limit: int = 50, offset: int = 0):
     conn = db_conn()
     rows = conn.execute(
@@ -239,7 +254,7 @@ async def list_tasks(limit: int = 50, offset: int = 0):
     return {"ok": True, "tasks": [row_to_dict(r) for r in rows]}
 
 
-@app.get("/health")
+@app.get("/health", dependencies=[Depends(require_api_key)])
 async def health():
     return {"ok": True}
 
