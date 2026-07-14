@@ -67,7 +67,7 @@ app = FastAPI(title="tax — Task Agent eXchange", lifespan=lifespan)
 
 
 class PushPayload(BaseModel):
-    device_token: str
+    device_token: Optional[str] = None
     title: str
     body: str
     context: Optional[str] = ""
@@ -99,8 +99,8 @@ def row_to_dict(row: sqlite3.Row) -> dict:
 
 
 async def send_apns(device_token: str, title: str, body: str, task_id: str):
-    if not APNS_KEY_PATH or not os.path.exists(APNS_KEY_PATH):
-        print(f"[tax-server] APNS key not configured at {APNS_KEY_PATH}; push not sent")
+    if not device_token or not APNS_KEY_PATH or not os.path.exists(APNS_KEY_PATH):
+        print(f"[tax-server] APNS key not configured or device token empty; push not sent")
         return
 
     with open(APNS_KEY_PATH) as f:
@@ -156,7 +156,7 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     conn.commit()
     conn.close()
 
-    background_tasks.add_task(send_apns, payload.device_token, payload.title, payload.body, task_id)
+    background_tasks.add_task(send_apns, payload.device_token or "", payload.title, payload.body, task_id)
 
     return {"ok": True, "task_id": task_id}
 

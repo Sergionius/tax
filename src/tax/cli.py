@@ -101,13 +101,13 @@ def run_agent(argv: list[str], detach: bool = False) -> int:
         print("[tax] error: TAX_API_KEY not set. Add to ~/.zshrc: export TAX_API_KEY=*** then source ~/.zshrc", file=sys.stderr)
         return 1
 
-    if not device_token:
-        print("[tax] error: device_token not configured. Run: tax config --device-token TOKEN", file=sys.stderr)
-        return 1
-
     if not argv:
         print("[tax] error: no command to run", file=sys.stderr)
         return 1
+
+    # device_token is required only when expecting a real push
+    if not device_token:
+        print("[tax] warning: device_token not configured; task will be stored but no push sent", file=sys.stderr)
 
     # Run the agent and capture output
     print(f"[tax] running: {' '.join(argv)}")
