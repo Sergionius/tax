@@ -1,0 +1,17 @@
+[Unit]
+Description=tax server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/tax/server
+Environment=TAX_DB_PATH=/opt/tax/data/tax.db
+Environment=TAX_APNS_KEY_PATH=/opt/tax/keys/AuthKey.p8
+EnvironmentFile=-/opt/tax/server/.env
+ExecStart=/opt/tax/server/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8001
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  tax:
+    build: .
+    container_name: tax-server
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - ./data:/data
+      - ./keys:/keys:ro
+    environment:
+      - TAX_DB_PATH=/data/tax.db
+      - TAX_APNS_KEY_PATH=/keys/AuthKey.p8
+      - TAX_APNS_KEY_ID=${TAX_APNS_KEY_ID}
+      - TAX_APNS_TEAM_ID=${TAX_APNS_TEAM_ID}
+      - TAX_APNS_BUNDLE_ID=${TAX_APNS_BUNDLE_ID}
+      - TAX_APNS_USE_SANDBOX=${TAX_APNS_USE_SANDBOX:-0}
+    restart: unless-stopped
