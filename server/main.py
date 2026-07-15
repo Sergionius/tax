@@ -27,14 +27,14 @@ security = HTTPBearer()
 
 def require_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
-    print(f"[tax-server] Received Authorization token prefix: {token[:8]}..., length: {len(token)}")
-    print(f"[tax-server] Expected API key prefix: {API_KEY[:8]}..., length: {len(API_KEY)}")
     if not API_KEY or token != API_KEY:
+        print(f"[tax-server] auth failed: token length={len(token)}, expected length={len(API_KEY)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    print("[tax-server] auth ok")
     return token
 
 
@@ -112,6 +112,7 @@ def row_to_dict(row: sqlite3.Row) -> dict:
 
 
 async def send_apns(device_token: str, title: str, body: str, task_id: str):
+    print(f"[tax-server] send_apns task_id={task_id} token_set={bool(device_token)} key_path={APNS_KEY_PATH}")
     if not device_token or not APNS_KEY_PATH or not os.path.exists(APNS_KEY_PATH):
         print(f"[tax-server] APNS key not configured or device token empty; push not sent")
         return
@@ -173,6 +174,8 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     created_at = now_iso()
     device_token = payload.device_token or latest_device_token()
 
+    print(f"[tax-server] /push task_id={task_id} device_token={'set' if device_token else 'empty'} title={payload.title}")
+
     conn = db_conn()
     conn.execute(
         "INSERT INTO tasks (id, device_token, title, body, status, context, logs, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -182,6 +185,7 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     conn.close()
 
     background_tasks.add_task(send_apns, device_token or "", payload.title, payload.body, task_id)
+    print(f"[tax-server] /push task_id={task_id} enqueued")
 
     return {"ok": True, "task_id": task_id}
 
@@ -232,6 +236,7 @@ async def get_task(task_id: str):
 
 @app.post("/task/{task_id}/reply", dependencies=[Depends(require_api_key)])
 async def reply(task_id: str, payload: ReplyPayload):
+    print(f"[tax-server] /task/{task_id}/reply received text length={len(payload.text)}")
     conn = db_conn()
     cur = conn.cursor()
     cur.execute(
@@ -245,6 +250,7 @@ async def reply(task_id: str, payload: ReplyPayload):
     if not row:
         return {"ok": False, "error": "not found"}
 
+    print(f"[tax-server] /task/{task_id}/reply saved")
     return {"ok": True, "task": row_to_dict(row)}
 
 
@@ -253,18 +259,22 @@ async def get_reply(task_id: str, wait: bool = False):
     timeout = 30 if wait else 0
     deadline = time.time() + timeout
 
+    print(f"[tax-server] /task/{task_id}/reply poll wait={wait} timeout={timeout}")
+
     while True:
         conn = db_conn()
         row = conn.execute("SELECT reply, status FROM tasks WHERE id = ?", (task_id,)).fetchone()
         conn.close()
 
         if row and row["reply"]:
+            print(f"[tax-server] /task/{task_id}/reply found reply length={len(row['reply'])}")
             return {"ok": True, "reply": row["reply"]}
 
         if time.time() >= deadline:
             break
         await asyncio.sleep(1)
 
+    print(f"[tax-server] /task/{task_id}/reply no reply within timeout")
     return {"ok": False, "reply": None}
 
 
