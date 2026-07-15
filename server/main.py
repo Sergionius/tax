@@ -27,6 +27,8 @@ security = HTTPBearer()
 
 def require_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
+    print(f"[tax-server] Received Authorization token prefix: {token[:8]}..., length: {len(token)}")
+    print(f"[tax-server] Expected API key prefix: {API_KEY[:8]}..., length: {len(API_KEY)}")
     if not API_KEY or token != API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

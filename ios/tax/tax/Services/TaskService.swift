@@ -1,14 +1,17 @@
 import Foundation
+import OSLog
 
 actor TaskService {
     private let baseURL: URL
     private let apiKey: String
     private let session: URLSession
+    private let logger = Logger(subsystem: "com.sergionius.tax", category: "TaskService")
 
     init(baseURL: URL, apiKey: String, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.session = session
+        logger.info("TaskService initialized: baseURL=\(baseURL.absoluteString, privacy: .public), apiKey prefix=\(String(apiKey.prefix(8)), privacy: .public), length=\(apiKey.count)")
     }
 
     func fetchTasks() async throws -> [Task] {
@@ -38,8 +41,10 @@ actor TaskService {
     private func data(path: String, method: String = "GET", body: (any Encodable)? = nil) async throws -> Data {
         var request = URLRequest(url: url(for: path))
         request.httpMethod = method
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        let authHeader = "Bearer \(apiKey)"
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        logger.info("\(method) \(path) — Authorization prefix=\(String(authHeader.prefix(16)), privacy: .public), apiKey length=\(apiKey.count)")
 
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -48,11 +53,13 @@ actor TaskService {
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
+            logger.error("Invalid response for \(path)")
             throw TaskServiceError.invalidResponse
         }
+        let responseBody = String(data: data, encoding: .utf8) ?? "<empty>"
+        logger.info("\(method) \(path) — status=\(httpResponse.statusCode), body=\(responseBody, privacy: .public)")
         guard (200..<300).contains(httpResponse.statusCode) else {
-            let message = String(data: data, encoding: .utf8)
-            throw TaskServiceError.httpStatus(httpResponse.statusCode, message)
+            throw TaskServiceError.httpStatus(httpResponse.statusCode, responseBody)
         }
         return data
     }

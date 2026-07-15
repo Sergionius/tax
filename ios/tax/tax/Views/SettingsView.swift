@@ -42,11 +42,12 @@ struct SettingsView: View {
                 HStack {
                     Button(settings.apiKey.isEmpty ? "Paste" : "Copy API Key") {
                         if settings.apiKey.isEmpty {
-                            settings.apiKey = UIPasteboard.general.string ?? ""
-                            statusMessage = settings.apiKey.isEmpty ? "Pasteboard is empty." : "API key pasted."
+                            let pasted = UIPasteboard.general.string ?? ""
+                            settings.apiKey = pasted
+                            statusMessage = pasted.isEmpty ? "Pasteboard is empty." : "API key pasted. length=\(pasted.count)"
                         } else {
                             UIPasteboard.general.string = settings.apiKey
-                            statusMessage = "API key copied."
+                            statusMessage = "API key copied. length=\(settings.apiKey.count)"
                         }
                     }
 
