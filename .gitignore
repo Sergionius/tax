@@ -1,37 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Environment and secrets
+.env
+*.env
+*.key
+*.p8
+keys/
+
+# Databases and runtime data
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# iOS
+ios/**/*.xcodeproj/project.xcworkspace/
+ios/**/*.xcodeproj/xcuserdata/
+ios/**/DerivedData/
+ios/**/*.ipa
+ios/**/*.dSYM.zip
+ios/**/*.dSYM
+
 # macOS
 .DS_Store
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-build/
-dist/
-.env
-.venv/
-venv/
+# Logs
+*.log
+logs/
 
-# Project secrets/data
-data/
-keys/
-*.p8
-*.p12
-*.mobileprovision
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
-# Xcode
-*.xcuserdata/
-*.xcworkspace/
-DerivedData/
-Build/
-*.ipa
-*.dSYM.zip
-*.dSYM
-timeline.xctimeline
-playground.xcworkspace
-
-# Caddy
-Caddyfile.bak.*
-
-# Pi local project config
-.pi/
+# Temporary files
+tmp/
+temp/
