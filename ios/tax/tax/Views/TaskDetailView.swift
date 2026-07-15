@@ -72,8 +72,8 @@ struct TaskDetailView: View {
             Text(task.title)
                 .font(.title2.bold())
             LabeledContent("Status", value: task.status)
-            if !task.createdAt.isEmpty { LabeledContent("Created", value: task.createdAt) }
-            if !task.updatedAt.isEmpty { LabeledContent("Updated", value: task.updatedAt) }
+            if !task.createdAt.isEmpty { LabeledContent("Created", value: task.displayCreatedAt) }
+            if !task.updatedAt.isEmpty { LabeledContent("Updated", value: task.displayUpdatedAt) }
             Text(task.id)
                 .font(.caption)
                 .textSelection(.enabled)

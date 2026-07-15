@@ -64,6 +64,42 @@ struct Task: Identifiable, Codable, Sendable, Hashable {
     }
 }
 
+extension Task {
+    var displayCreatedAt: String {
+        Self.displayDate(from: createdAt)
+    }
+
+    var displayUpdatedAt: String {
+        Self.displayDate(from: updatedAt)
+    }
+
+    private static func displayDate(from value: String) -> String {
+        guard !value.isEmpty else { return value }
+
+        if let date = parseDate(value) {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "ru_RU")
+            formatter.timeZone = .current
+            formatter.dateFormat = "HH:mm:ss dd:MM:yyyy"
+            return formatter.string(from: date)
+        }
+
+        return value
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        if let date = isoFormatter.date(from: value) {
+            return date
+        }
+
+        isoFormatter.formatOptions = [.withInternetDateTime]
+        return isoFormatter.date(from: value)
+    }
+}
+
 struct TaskListResponse: Codable, Sendable {
     let ok: Bool
     let tasks: [Task]

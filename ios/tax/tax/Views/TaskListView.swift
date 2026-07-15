@@ -133,7 +133,7 @@ private struct TaskRowView: View {
                     .lineLimit(3)
             }
 
-            Text(task.updatedAt.isEmpty ? task.createdAt : task.updatedAt)
+            Text(task.updatedAt.isEmpty ? task.displayCreatedAt : task.displayUpdatedAt)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
