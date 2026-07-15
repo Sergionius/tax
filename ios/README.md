@@ -6,7 +6,7 @@ iOS-приложение на SwiftUI для получения push-уведо�
 
 1. File → New → Project → iOS → App.
 2. Name: `TaxApp`.
-3. Bundle Identifier: `com.sergionius.tax` (или свой).
+3. Bundle Identifier: `ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp` (или свой).
 4. Interface: SwiftUI.
 5. Language: Swift.
 6. Скопируй файлы `TaxApp.swift` и `ContentView.swift` из этой папки в проект, заменив сгенерированные.

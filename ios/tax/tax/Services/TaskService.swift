@@ -5,7 +5,7 @@ actor TaskService {
     private let baseURL: URL
     private let apiKey: String
     private let session: URLSession
-    private let logger = Logger(subsystem: "com.sergionius.tax", category: "TaskService")
+    private let logger = Logger(subsystem: "ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp", category: "TaskService")
 
     init(baseURL: URL, apiKey: String, session: URLSession = .shared) {
         self.baseURL = baseURL

@@ -13,7 +13,7 @@ final class SettingsStore {
     @ObservationIgnored private let serverURLKey = "tax.serverURL"
     @ObservationIgnored private let deviceTokenKey = "tax.deviceToken"
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private let logger = Logger(subsystem: "com.sergionius.tax", category: "SettingsStore")
+    @ObservationIgnored private let logger = Logger(subsystem: "ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp", category: "SettingsStore")
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults

@@ -20,7 +20,7 @@ This file provides guidance to AI agents building the iOS SwiftUI app for the `t
 - **Target:** iOS 17+
 - **Networking:** `URLSession` with `async/await`
 - **Push:** `UserNotifications` framework, `UNUserNotificationCenterDelegate`
-- **Bundle ID:** `com.sergionius.tax`
+- **Bundle ID:** `ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp`
 - **Capability:** Push Notifications
 
 ## API schema
