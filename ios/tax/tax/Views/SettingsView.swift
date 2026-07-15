@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var statusMessage: String?
     @State private var isCheckingHealth = false
     @State private var isRegistering = false
+    @State private var showAPIKey = false
 
     var body: some View {
         @Bindable var settings = settings
@@ -20,13 +21,44 @@ struct SettingsView: View {
             }
 
             Section {
-                SecureField("API Key", text: $settings.apiKey)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                HStack {
+                    if showAPIKey {
+                        TextField("API Key", text: $settings.apiKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.system(.body, design: .monospaced))
+                    } else {
+                        SecureField("API Key", text: $settings.apiKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                    Button(showAPIKey ? "Hide" : "Show") {
+                        showAPIKey.toggle()
+                    }
+                    .buttonStyle(.borderless)
+                }
+
+                HStack {
+                    Button(settings.apiKey.isEmpty ? "Paste" : "Copy API Key") {
+                        if settings.apiKey.isEmpty, let pasted = UIPasteboard.general.string {
+                            settings.apiKey = pasted
+                        } else {
+                            UIPasteboard.general.string = settings.apiKey
+                            statusMessage = "API key copied."
+                        }
+                    }
+                    if !settings.apiKey.isEmpty {
+                        Button("Clear") {
+                            settings.apiKey = ""
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.red)
+                    }
+                }
             } header: {
                 Text("API Key")
             } footer: {
-                Text("Saved in Keychain. The backend requires Authorization: Bearer <API key>.")
+                Text("Saved in Keychain when you tap Save Settings.")
             }
 
             Section {
@@ -52,7 +84,7 @@ struct SettingsView: View {
             } header: {
                 Text("Device Token")
             } footer: {
-                Text("Copy this token to the Mac with: tax config --device-token <token>")
+                Text("Device token is registered on the server when you tap Save Settings.")
             }
 
             Section {

@@ -44,7 +44,7 @@ Edit `ios/tax/tax/Views/SettingsView.swift`, replace footer text:
 }
 ```
 
-### 4. Show API key in Settings with a reveal toggle
+### 4. Show API key in Settings with a reveal toggle and save to Keychain
 
 Edit `ios/tax/tax/Views/SettingsView.swift`. Replace the API key section with:
 
@@ -55,6 +55,7 @@ Section {
             TextField("API Key", text: $settings.apiKey)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .font(.system(.body, design: .monospaced))
         } else {
             SecureField("API Key", text: $settings.apiKey)
                 .textInputAutocapitalization(.never)
@@ -66,17 +67,24 @@ Section {
         .buttonStyle(.borderless)
     }
 
-    Button(settings.apiKey.isEmpty ? "Copy from Pasteboard" : "Copy API Key") {
-        if settings.apiKey.isEmpty, let pasted = UIPasteboard.general.string {
-            settings.apiKey = pasted
-        } else {
-            UIPasteboard.general.string = settings.apiKey
+    HStack {
+        Button(settings.apiKey.isEmpty ? "Paste" : "Copy API Key") {
+            if settings.apiKey.isEmpty, let pasted = UIPasteboard.general.string {
+                settings.apiKey = pasted
+            } else {
+                UIPasteboard.general.string = settings.apiKey
+            }
+        }
+        if !settings.apiKey.isEmpty {
+            Button("Clear") { settings.apiKey = "" }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.red)
         }
     }
 } header: {
     Text("API Key")
 } footer: {
-    Text("Saved in Keychain. The backend requires Authorization: Bearer <key>.")
+    Text("Saved in Keychain. The backend requires Authorization: Bearer <key>")
 }
 ```
 
@@ -84,6 +92,21 @@ Add to the top of `SettingsView`:
 
 ```swift
 @State private var showAPIKey = false
+```
+
+Make sure `SettingsStore.save()` persists `apiKey` to the Keychain:
+
+```swift
+func save() {
+    do {
+        try Keychain.save(key: apiKeyKey, value: apiKey)
+        defaults.set(serverURL, forKey: serverURLKey)
+        cachedService = nil
+        lastSaveError = nil
+    } catch {
+        lastSaveError = error.localizedDescription
+    }
+}
 ```
 
 ### 5. Fix race condition: register device token after TaskService is ready
@@ -185,7 +208,7 @@ In Xcode, press `Cmd+B` and check the Issue Navigator. Fix any Swift 6 concurren
 4. Select type `App`
 5. Fill in:
    - Description: `tax`
-   - Bundle ID: `com.sergionius.tax` (explicit, must match Xcode)
+   - Bundle ID: `ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp` (explicit, must match Xcode)
 6. Enable capability: `Push Notifications`
 7. Click `Continue`, then `Register`
 
@@ -217,7 +240,7 @@ Edit `/home/hermes/tax/server/.env` on the VPS:
 ```bash
 TAX_APNS_KEY_ID=ABCD123456
 TAX_APNS_TEAM_ID=WQ3X4DQT53
-TAX_APNS_BUNDLE_ID=com.sergionius.tax
+TAX_APNS_BUNDLE_ID=ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp
 TAX_APNS_USE_SANDBOX=true
 ```
 
@@ -273,7 +296,7 @@ export TAX_SERVER="https://tax.138-249-127-23.nip.io"
 1. Open `ios/tax/tax.xcodeproj`
 2. Select target → `Signing & Capabilities`:
    - Team: your Apple Developer team
-   - Bundle Identifier: `com.sergionius.tax`
+   - Bundle Identifier: `ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp`
    - Capability: `Push Notifications` must be present
 3. Build and run on a real iPhone (not simulator)
 
@@ -314,7 +337,7 @@ The task should show `replied` status.
 | No push received | APNS key not configured | Check `.env`, restart service, check `journalctl` |
 | `Bad device token` (APNs error 400) | Sandbox/production mismatch | Set `TAX_APNS_USE_SANDBOX=true` for debug builds, `false` for release |
 | `Invalid provider token` (APNs error 403) | Wrong key ID or team ID | Verify `TAX_APNS_KEY_ID` and `TAX_APNS_TEAM_ID` |
-| `Topic disallowed` | Wrong bundle ID | Verify `TAX_APNS_BUNDLE_ID=com.sergionius.tax` |
+| `Topic disallowed` | Wrong bundle ID | Verify `TAX_APNS_BUNDLE_ID=ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp` |
 | App doesn't ask for push | Capability missing | Add `Push Notifications` in Xcode Signing & Capabilities |
 | Token not registered | API key wrong in iOS | Check Settings → API key, use `Check Server Health` |
 | Reply not received on Mac | Task ID mismatch | Ensure reply is sent to the same task opened by the push |

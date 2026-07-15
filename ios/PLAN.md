@@ -48,7 +48,7 @@ All endpoints require `Authorization: Bearer <TAX_API_KEY>`.
 - `UNUserNotificationCenter` for APNs
 - Keychain for API key
 - UserDefaults for server URL
-- Bundle ID: `com.sergionius.tax`
+- Bundle ID: `ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp`
 
 ## Project files
 
@@ -71,7 +71,7 @@ ios/skills/ios-simulator.md
 
 ### 1. Project setup
 
-- Verify bundle ID = `com.sergionius.tax`
+- Verify bundle ID = `ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp`
 - Verify `tax.entitlements` contains `aps-environment` key
 - Verify `Info.plist` allows remote notifications
 - Add an `AppDelegate` and connect it to the SwiftUI app lifecycle
