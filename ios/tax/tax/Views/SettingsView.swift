@@ -32,6 +32,7 @@ struct SettingsView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                     }
+
                     Button(showAPIKey ? "Hide" : "Show") {
                         showAPIKey.toggle()
                     }
@@ -40,20 +41,20 @@ struct SettingsView: View {
 
                 HStack {
                     Button(settings.apiKey.isEmpty ? "Paste" : "Copy API Key") {
-                        if settings.apiKey.isEmpty, let pasted = UIPasteboard.general.string {
-                            settings.apiKey = pasted
+                        if settings.apiKey.isEmpty {
+                            settings.apiKey = UIPasteboard.general.string ?? ""
+                            statusMessage = settings.apiKey.isEmpty ? "Pasteboard is empty." : "API key pasted."
                         } else {
                             UIPasteboard.general.string = settings.apiKey
                             statusMessage = "API key copied."
                         }
                     }
-                    if !settings.apiKey.isEmpty {
-                        Button("Clear") {
-                            settings.apiKey = ""
-                        }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.red)
+
+                    Button("Clear", role: .destructive) {
+                        settings.apiKey = ""
+                        statusMessage = "API key cleared."
                     }
+                    .disabled(settings.apiKey.isEmpty)
                 }
             } header: {
                 Text("API Key")
@@ -83,8 +84,6 @@ struct SettingsView: View {
                 .disabled(isRegistering)
             } header: {
                 Text("Device Token")
-            } footer: {
-                Text("Device token is registered on the server when you tap Save Settings.")
             }
 
             Section {
