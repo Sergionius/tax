@@ -53,6 +53,13 @@ def init_db():
             updated_at TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS device_tokens (
+            token TEXT PRIMARY KEY,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -82,6 +89,10 @@ class TaskUpdate(BaseModel):
 
 class ReplyPayload(BaseModel):
     text: str
+
+
+class DeviceTokenPayload(BaseModel):
+    device_token: str
 
 
 def db_conn():
@@ -143,20 +154,32 @@ async def send_apns(device_token: str, title: str, body: str, task_id: str):
             print(f"[tax-server] APNs error: {e}")
 
 
+def latest_device_token() -> Optional[str]:
+    conn = db_conn()
+    row = conn.execute(
+        "SELECT token FROM device_tokens ORDER BY updated_at DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    if row:
+        return row["token"]
+    return None
+
+
 @app.post("/push", dependencies=[Depends(require_api_key)])
 async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     task_id = os.urandom(16).hex()
     created_at = now_iso()
+    device_token = payload.device_token or latest_device_token()
 
     conn = db_conn()
     conn.execute(
         "INSERT INTO tasks (id, device_token, title, body, status, context, logs, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (task_id, payload.device_token, payload.title, payload.body, "pending", payload.context, payload.logs, created_at, created_at),
+        (task_id, device_token or "", payload.title, payload.body, "pending", payload.context, payload.logs, created_at, created_at),
     )
     conn.commit()
     conn.close()
 
-    background_tasks.add_task(send_apns, payload.device_token or "", payload.title, payload.body, task_id)
+    background_tasks.add_task(send_apns, device_token or "", payload.title, payload.body, task_id)
 
     return {"ok": True, "task_id": task_id}
 
@@ -256,6 +279,24 @@ async def list_tasks(limit: int = 50, offset: int = 0):
 
 @app.get("/health", dependencies=[Depends(require_api_key)])
 async def health():
+    return {"ok": True}
+
+
+@app.post("/register-device", dependencies=[Depends(require_api_key)])
+async def register_device(payload: DeviceTokenPayload):
+    token = payload.device_token.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="device_token is required")
+
+    now = now_iso()
+    conn = db_conn()
+    conn.execute(
+        "INSERT INTO device_tokens (token, created_at, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(token) DO UPDATE SET updated_at = excluded.updated_at",
+        (token, now, now),
+    )
+    conn.commit()
+    conn.close()
     return {"ok": True}
 
 
