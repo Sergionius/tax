@@ -1,51 +1,29 @@
-# Agent Instructions: tax iOS
+# AGENTS.md — iOS SwiftUI app for tax
 
-This file is for AI coding agents (pi, Claude Code, Codex, etc.) working on the iOS SwiftUI app for the `tax` project.
+This file provides guidance to AI agents building the iOS SwiftUI app for the `tax` project.
 
 ## Project overview
 
-`tax` = Task Agent eXchange. Push notifications and remote reply for AI agents running in `agterm` on a Mac.
+- **Backend:** FastAPI at `https://tax.138-249-127-23.nip.io`
+- **Authentication:** `Authorization: Bearer ** Push transport:** Apple Push Notification service (APNs). The backend sends pushes directly using a JWT `.p8` auth key.
+- **Flow:**
+  1. Mac CLI (`tax run`) executes an AI agent (`pi`) and sends the result to the backend via `POST /push`.
+  2. Backend stores the task and sends a push to the iPhone.
+  3. iPhone receives the push, user opens the app, sees task details, and can reply.
+  4. iPhone sends the reply to `POST /task/{id}/reply`.
+  5. Mac CLI polls `GET /task/{id}/reply?wait=true` and feeds the reply back into `agterm` via `agtermctl`.
 
-- Mac runs `pi` via `tax run`.
-- On completion, Mac POSTs to the FastAPI backend at `https://tax.138-249-127-23.nip.io`.
-- Backend sends an APNs push to the iPhone.
-- iPhone shows the task; user types a reply; iPhone POSTs the reply to the backend.
-- Mac long-polls the backend and feeds the reply back into `agterm`.
+## Tech stack
 
-## Repository layout
+- **SwiftUI** with `@Observable` / `@State` / `@Bindable`
+- **Swift 6** with strict concurrency checking enabled (`SWIFT_STRICT_CONCURRENCY = complete`)
+- **Target:** iOS 17+
+- **Networking:** `URLSession` with `async/await`
+- **Push:** `UserNotifications` framework, `UNUserNotificationCenterDelegate`
+- **Bundle ID:** `com.sergionius.tax`
+- **Capability:** Push Notifications
 
-```
-tax/ios/
-├── tax.xcodeproj/         # Xcode project (create once)
-├── tax/
-│   ├── taxApp.swift         # App entry + UNUserNotificationCenter setup
-│   ├── AppState.swift       # @Observable app state
-│   ├── Services/
-│   │   ├── TaskService.swift      # Backend API client
-│   │   └── NotificationService.swift # APNs registration + delegate
-│   ├── Views/
-│   │   ├── TaskListView.swift
-│   │   ├── TaskDetailView.swift
-│   │   └── ReplyView.swift
-│   └── Models/
-│       └── Task.swift
-└── tax.entitlements
-```
-
-## API reference
-
-Base URL: `https://tax.138-249-127-23.nip.io`
-All endpoints require `Authorization: Bearer <TAX_API_KEY>`.
-
-- `GET /health` → `{ ok: true }`
-- `POST /push` → `{ ok: true, task_id: string }`
-  - Request body: `{ device_token?: string, title: string, body: string, context?: string, logs?: string }`
-- `GET /tasks` → `{ ok: true, tasks: Task[] }`
-- `GET /task/{id}` → `{ ok: true, task: Task }`
-- `POST /task/{id}/reply` → `{ ok: true, task: Task }`
-  - Request body: `{ text: string }`
-
-## Task model (Swift)
+## API schema
 
 ```swift
 struct Task: Codable, Identifiable, Sendable {
@@ -59,129 +37,6 @@ struct Task: Codable, Identifiable, Sendable {
     let reply: String?
     let createdAt: String
     let updatedAt: String
-
-    enum CodingKeys: String, CodingKey {
-        case id, title, body, status, context, logs, reply
-        case deviceToken = "device_token"
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
-    }
-}
-```
-
-## Tech stack
-
-- iOS 17+
-- Swift 6
-- SwiftUI with `@Observable` / `@Bindable`
-- Strict concurrency checking enabled (`SWIFT_STRICT_CONCURRENCY = complete`)
-- APNs for push notifications
-- `UserNotifications` framework for registration, delegate, and reply actions
-- `URLSession` with `async/await`
-- No third-party networking libraries for MVP
-
-## Coding rules
-
-1. **Swift 6 strict concurrency**: all models are `Sendable`, UI state lives on `@MainActor`, network work is `nonisolated` or inside an actor.
-2. **No `ObservableObject`**: prefer `@Observable` classes and `@State`/`@Bindable`.
-3. **No `DispatchQueue.main.async`**: use `MainActor.run` or keep state `@MainActor`.
-4. **Small views**: extract subviews; keep body short.
-5. **Loading/error states**: use `ContentUnavailableView` and clear error messages.
-6. **Security**: do not hardcode the API key. Provide a settings screen or keychain input.
-7. **Dates**: backend returns ISO8601 strings. Decode as `String` unless you add a custom date strategy.
-
-## Push notification handling
-
-- Register for remote notifications in `taxApp.init` or `application(_:didFinishLaunchingWithOptions:)`.
-- Request authorization with `.alert`, `.badge`, `.sound`.
-- Implement `UNUserNotificationCenterDelegate`.
-- On receiving a push, extract `task_id` from the payload root.
-- Store the device token and show it in the Settings view so the user can copy it to the Mac CLI.
-- Define a `TASK_REPLY` notification category with a `REPLY` action.
-- When the user replies from the notification, POST the text to `/task/{task_id}/reply`.
-
-## App entry example
-
-```swift
-import SwiftUI
-import UserNotifications
-
-@main
-struct taxApp: App {
-    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
-    }
-}
-
-class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    func application(
-        _ application: UIApplication,
-        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
-    ) -> Bool {
-        UNUserNotificationCenter.current().delegate = self
-        Task {
-            try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
-            await UIApplication.shared.registerForRemoteNotifications()
-        }
-        return true
-    }
-
-    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
-        print("APNs device token: \(token)")
-    }
-
-    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        print("Failed to register for remote notifications: \(error)")
-    }
-
-    func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification,
-        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-    ) {
-        completionHandler([.banner, .badge, .sound])
-    }
-}
-```
-
-## Network service pattern
-
-```swift
-nonisolated actor TaskService {
-    private let baseURL: URL
-    private let apiKey: String
-
-    init(baseURL: URL, apiKey: String) {
-        self.baseURL = baseURL
-        self.apiKey = apiKey
-    }
-
-    private func request(for path: String, method: String = "GET", body: Data? = nil) -> URLRequest {
-        var request = URLRequest(url: baseURL.appending(path: path))
-        request.httpMethod = method
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = body
-        return request
-    }
-
-    func fetchTasks() async throws -> [Task] {
-        let (data, _) = try await URLSession.shared.data(for: request(for: "tasks"))
-        return try JSONDecoder().decode(TaskListResponse.self, from: data).tasks
-    }
-
-    func sendReply(taskID: String, text: String) async throws -> Task {
-        let body = try JSONEncoder().encode(["text": text])
-        let (data, _) = try await URLSession.shared.data(
-            for: request(for: "task/\(taskID)/reply", method: "POST", body: body)
-        )
-        return try JSONDecoder().decode(TaskResponse.self, from: data).task
-    }
 }
 
 struct TaskListResponse: Codable, Sendable {
@@ -193,27 +48,136 @@ struct TaskResponse: Codable, Sendable {
     let ok: Bool
     let task: Task
 }
+
+struct ReplyPayload: Codable, Sendable {
+    let text: String
+}
 ```
 
-## Signing and capabilities
+Endpoints (all require `Authorization: Bearer ** GET /tasks` — list recent tasks
+- `GET /task/{id}` — fetch one task
+- `POST /task/{id}/reply` — send reply from iPhone
+- `GET /health` — health check
 
-- Bundle ID: `com.sergionius.tax`
-- Team: your Apple Development Team
-- Capability: Push Notifications
-- Background modes: not required for MVP
+## SwiftUI rules
 
-## Testing checklist
+- Use `@Observable` models, not `ObservableObject`.
+- Keep views small; extract subviews.
+- Use `NavigationStack` and `.navigationDestination`.
+- Use `List` with `.refreshable { await load() }`.
+- Use `ContentUnavailableView` for empty states and `ProgressView` for loading.
+- Use `TextEditor` for reply input; `Form` or `VStack` for layout.
+- Prefer `Markdown` for logs only if the source is trusted; otherwise plain text.
 
-- [ ] App builds on real device (simulator cannot receive APNs)
-- [ ] Device token is printed and visible in Settings
-- [ ] Mac CLI configured with the token
-- [ ] `tax run pi -p "hello"` delivers a push to the iPhone
-- [ ] Tapping the notification opens the task detail
-- [ ] Sending a reply from the app makes Mac CLI receive it and feed it to agterm
+## Swift concurrency rules
 
-## Common errors
+- All UI mutations happen on `@MainActor`.
+- Network service must be `nonisolated` or an actor to avoid main-thread blocking.
+- Make all Codable models `Sendable` (value types or `final class` with `Sendable`).
+- Avoid `@unchecked Sendable`.
+- Use `Task { ... }` from views; `.task` cancels automatically on view disappear.
+- Avoid `DispatchQueue.main.async`; use `MainActor.run` or `@MainActor`.
 
-- `401 Unauthorized` on backend: API key is missing or wrong. The key is set in `TAX_API_KEY` on the Mac and entered in the iOS app settings.
-- `device_token` empty in task: Mac CLI was not configured with the token; push won't be sent, but the task is still stored.
-- No push received: check that the backend `.env` has APNs key, team, bundle ID, and that `AuthKey.p8` is in `keys/`.
-- `stale ctx` error from pi: fix the `agterm-status.ts` extension; wrap retry handlers in `try/catch`.
+## Networking service
+
+```swift
+import Foundation
+
+nonisolated actor TaskService {
+    private let baseURL: URL
+    private let apiKey: String
+
+    init(baseURL: URL, apiKey: String) {
+        self.baseURL = baseURL
+        self.apiKey = apiKey
+    }
+
+    func fetchTasks() async throws -> [Task] {
+        let url = baseURL.appending(path: "tasks")
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return try JSONDecoder().decode(TaskListResponse.self, from: data).tasks
+    }
+
+    func fetchTask(id: String) async throws -> Task {
+        let url = baseURL.appending(path: "task/\(id)")
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return try JSONDecoder().decode(TaskResponse.self, from: data).task
+    }
+
+    func sendReply(taskID: String, text: String) async throws -> Task {
+        let url = baseURL.appending(path: "task/\(taskID)/reply")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(ReplyPayload(text: text))
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return try JSONDecoder().decode(TaskResponse.self, from: data).task
+    }
+}
+```
+
+## Push notifications
+
+- Register in `taxApp.swift` at launch:
+  ```swift
+  UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
+  UIApplication.shared.registerForRemoteNotifications()
+  ```
+- Implement `UNUserNotificationCenterDelegate` for foreground presentation and reply actions.
+- Extract `task_id` from the push payload.
+- On device token registration, display it in the app so the user can copy it to Mac CLI:
+  ```bash
+  tax config --device-token <token>
+  ```
+- Add a `UNNotificationAction` with identifier `REPLY` for inline replies if desired.
+
+## App architecture
+
+```
+tax/ios/
+├── taxApp.swift                  // App entry, UNUserNotificationCenter setup
+├── AppState.swift                // @Observable global state
+├── Models/
+│   └── Task.swift
+├── Services/
+│   ├── TaskService.swift
+│   └── NotificationService.swift
+├── Views/
+│   ├── TaskListView.swift
+│   ├── TaskDetailView.swift
+│   └── SettingsView.swift
+└── tax.entitlements              // Push Notifications capability
+```
+
+## Build and run
+
+1. Open `tax/ios/tax.xcodeproj` in Xcode.
+2. Select a real iPhone device (simulator cannot receive APNs).
+3. Set the signing team and ensure bundle ID matches Apple Developer Portal.
+4. Enable Push Notifications capability.
+5. Build and run.
+6. Copy the device token from the Settings view.
+
+## Testing
+
+1. On Mac:
+   ```bash
+   tax config --device-token <token>
+   tax run pi -p "привет"
+   ```
+2. iPhone should receive a push.
+3. Tap the push or open the app; send a reply.
+4. Mac CLI should receive the reply and feed it to `agterm`.
+
+## Common pitfalls
+
+- Do not hardcode the API key. Use a settings text field for MVP; keychain for production.
+- Do not decode dates as `Date` unless using a custom ISO8601 strategy; backend returns ISO strings.
+- APNs device token is a hex string; do not wrap it in `<>` or spaces when copying to `tax config`.
+- Do not forget `Content-Type: application/json` on POST requests.
+- Simulators cannot receive APNs; use a real device.
