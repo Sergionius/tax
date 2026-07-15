@@ -7,6 +7,7 @@ struct TaskListView: View {
     @State private var navigationPath: [String] = []
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var isRefreshing = false
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -23,7 +24,7 @@ struct TaskListView: View {
                             TaskRowView(task: task)
                         }
                     }
-                    .refreshable { await load() }
+                    .refreshable { await load(showOverlay: false) }
                 }
             }
             .navigationTitle("Tasks")
@@ -49,7 +50,7 @@ struct TaskListView: View {
                 openSelectedTaskIfNeeded(appState.selectedTaskID)
             }
             .onChange(of: appState.refreshToken) { _, _ in
-                Swift.Task { await load() }
+                Swift.Task { await load(showOverlay: !isRefreshing) }
             }
             .onChange(of: appState.selectedTaskID) { _, taskID in
                 openSelectedTaskIfNeeded(taskID)
@@ -73,22 +74,34 @@ struct TaskListView: View {
     }
 
     private func openSelectedTaskIfNeeded(_ taskID: String?) {
-        guard let taskID, navigationPath.last != taskID else { return }
+        guard let taskID else { return }
+        defer { appState.clearSelectedTask() }
+        guard navigationPath.last != taskID else { return }
         navigationPath.append(taskID)
     }
 
-    private func load() async {
+    private func load(showOverlay: Bool = true) async {
+        guard !isLoading, !isRefreshing else { return }
+
         guard let service = settings.configuredService else {
             tasks = []
             errorMessage = "Configure API key and server URL in Settings."
             return
         }
 
-        isLoading = true
-        defer { isLoading = false }
+        if showOverlay {
+            isLoading = true
+        } else {
+            isRefreshing = true
+        }
+        defer {
+            isLoading = false
+            isRefreshing = false
+        }
 
         do {
             tasks = try await service.fetchTasks()
+        } catch is CancellationError {
         } catch {
             errorMessage = error.localizedDescription
         }

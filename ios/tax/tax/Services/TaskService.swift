@@ -40,6 +40,7 @@ actor TaskService {
 
     private func data(path: String, method: String = "GET", body: (any Encodable)? = nil) async throws -> Data {
         var request = URLRequest(url: url(for: path))
+        request.timeoutInterval = 15
         request.httpMethod = method
         let authHeader = "Bearer \(apiKey)"
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")

@@ -8,6 +8,7 @@ struct TaskDetailView: View {
     @State private var task: Task?
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var isRefreshing = false
     @State private var showsReply = false
 
     var body: some View {
@@ -38,7 +39,10 @@ struct TaskDetailView: View {
             }
         }
         .task { await load() }
-        .refreshable { await load() }
+        .refreshable { await load(showOverlay: false) }
+        .onChange(of: appState.refreshToken) { _, _ in
+            Swift.Task { await load(showOverlay: task == nil) }
+        }
         .sheet(isPresented: $showsReply) {
             if let task {
                 NavigationStack {
@@ -78,17 +82,27 @@ struct TaskDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func load() async {
+    private func load(showOverlay: Bool = true) async {
+        guard !isLoading, !isRefreshing else { return }
+
         guard let service = settings.configuredService else {
             errorMessage = "Configure API key and server URL in Settings."
             return
         }
 
-        isLoading = true
-        defer { isLoading = false }
+        if showOverlay {
+            isLoading = true
+        } else {
+            isRefreshing = true
+        }
+        defer {
+            isLoading = false
+            isRefreshing = false
+        }
 
         do {
             task = try await service.fetchTask(id: taskID)
+        } catch is CancellationError {
         } catch {
             errorMessage = error.localizedDescription
         }

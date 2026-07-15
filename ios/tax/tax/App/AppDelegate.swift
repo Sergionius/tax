@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        refreshTasks()
         completionHandler([.banner, .list, .sound, .badge])
     }
 
@@ -61,11 +62,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        if let taskID = extractTaskID(from: userInfo) {
-            openTask(taskID)
-        } else {
-            NotificationCenter.default.post(name: .taxRefreshTasks, object: nil)
-        }
+        refreshTasks()
         completionHandler(.newData)
     }
 
@@ -76,6 +73,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     private func openTask(_ taskID: String) {
         PendingTaskStore.save(taskID)
         NotificationCenter.default.post(name: .taxOpenTask, object: taskID)
+    }
+
+    private func refreshTasks() {
+        NotificationCenter.default.post(name: .taxRefreshTasks, object: nil)
     }
 
     private func sendInlineReply(taskID: String, text: String) {
