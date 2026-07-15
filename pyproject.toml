@@ -1,6 +1,6 @@
 [project]
 name = "tax"
-version = "0.1.0"
+version = "0.1.1"
 description = "Task Agent eXchange — push notifications and remote reply for AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
