@@ -32,3 +32,6 @@ playground.xcworkspace
 
 # Caddy
 Caddyfile.bak.*
+
+# Pi local project config
+.pi/
