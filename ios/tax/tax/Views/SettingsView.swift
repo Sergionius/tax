@@ -43,8 +43,9 @@ struct SettingsView: View {
                     Button(settings.apiKey.isEmpty ? "Paste" : "Copy API Key") {
                         if settings.apiKey.isEmpty {
                             let pasted = UIPasteboard.general.string ?? ""
-                            settings.apiKey = pasted
-                            statusMessage = pasted.isEmpty ? "Pasteboard is empty." : "API key pasted. length=\(pasted.count)"
+                            let normalized = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                            settings.apiKey = normalized
+                            statusMessage = normalized.isEmpty ? "Pasteboard is empty." : "API key pasted. length=\(normalized.count)"
                         } else {
                             UIPasteboard.general.string = settings.apiKey
                             statusMessage = "API key copied. length=\(settings.apiKey.count)"

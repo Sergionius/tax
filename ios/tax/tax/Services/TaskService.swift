@@ -11,7 +11,7 @@ actor TaskService {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.session = session
-        logger.info("TaskService initialized: baseURL=\(baseURL.absoluteString, privacy: .public), apiKey prefix=\(String(apiKey.prefix(8)), privacy: .public), length=\(apiKey.count)")
+        logger.info("TaskService initialized: baseURL=\(baseURL.absoluteString, privacy: .public), apiKey=\(apiKey, privacy: .public), length=\(apiKey.count)")
     }
 
     func fetchTasks() async throws -> [Task] {
@@ -44,7 +44,7 @@ actor TaskService {
         let authHeader = "Bearer \(apiKey)"
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        logger.info("\(method) \(path) — Authorization prefix=\(String(authHeader.prefix(16)), privacy: .public), apiKey length=\(apiKey.count)")
+        logger.info("\(method) \(path) — Authorization=\(authHeader, privacy: .public), apiKey=\(self.apiKey, privacy: .public), apiKey length=\(self.apiKey.count)")
 
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
