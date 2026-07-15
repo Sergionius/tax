@@ -1,17 +1,47 @@
-//
-//  taxApp.swift
-//  tax
-//
-//  Created by Sergio Malkin on 15.07.2026.
-//
-
 import SwiftUI
 
 @main
 struct taxApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @State private var settingsStore = SettingsStore()
+    @State private var appState = AppState()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(settingsStore)
+                .environment(appState)
+                .onAppear {
+                    configureDelegateService()
+                    consumePendingTaskIfNeeded()
+                }
+                .onChange(of: settingsStore.apiKey) { _, _ in configureDelegateService() }
+                .onChange(of: settingsStore.serverURL) { _, _ in configureDelegateService() }
+                .onReceive(NotificationCenter.default.publisher(for: .taxDeviceTokenUpdated)) { notification in
+                    if let token = notification.object as? String {
+                        settingsStore.saveDeviceToken(token)
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .taxOpenTask)) { notification in
+                    if let taskID = notification.object as? String {
+                        appState.openTask(id: taskID)
+                    }
+                    appState.requestRefresh()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .taxRefreshTasks)) { _ in
+                    appState.requestRefresh()
+                }
+        }
+    }
+
+    private func configureDelegateService() {
+        appDelegate.taskService = settingsStore.configuredService
+    }
+
+    private func consumePendingTaskIfNeeded() {
+        if let taskID = PendingTaskStore.consume() {
+            appState.openTask(id: taskID)
+            appState.requestRefresh()
         }
     }
 }
