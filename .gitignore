@@ -1,4 +1,7 @@
+# macOS
 .DS_Store
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -8,12 +11,24 @@ dist/
 .env
 .venv/
 venv/
+
+# Project secrets/data
 data/
 keys/
 *.p8
 *.p12
 *.mobileprovision
+
+# Xcode
 *.xcuserdata/
 *.xcworkspace/
 DerivedData/
+Build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+timeline.xctimeline
+playground.xcworkspace
+
+# Caddy
 Caddyfile.bak.*
