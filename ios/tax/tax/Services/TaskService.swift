@@ -11,7 +11,7 @@ actor TaskService {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.session = session
-        logger.info("TaskService initialized: baseURL=\(baseURL.absoluteString, privacy: .public), apiKey=\(apiKey, privacy: .public), length=\(apiKey.count)")
+        logger.info("TaskService initialized: baseURL=\(baseURL.absoluteString, privacy: .public), apiKeyPresent=\(!apiKey.isEmpty), apiKeyLength=\(apiKey.count)")
     }
 
     func fetchTasks() async throws -> [Task] {
@@ -29,8 +29,12 @@ actor TaskService {
         return try JSONDecoder().decode(TaskResponse.self, from: data).task
     }
 
-    func registerDevice(token: String) async throws {
-        _ = try await data(path: "register-device", method: "POST", body: DeviceTokenPayload(deviceToken: token))
+    func registerDevice(token: String, pushMode: PushMode) async throws {
+        let payload = DeviceTokenPayload(
+            deviceToken: token,
+            preferences: DevicePreferences(pushMode: pushMode)
+        )
+        _ = try await data(path: "register-device", method: "POST", body: payload)
     }
 
     func health() async throws -> Bool {
@@ -42,10 +46,9 @@ actor TaskService {
         var request = URLRequest(url: url(for: path))
         request.timeoutInterval = 15
         request.httpMethod = method
-        let authHeader = "Bearer \(apiKey)"
-        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        logger.info("\(method) \(path) — Authorization=\(authHeader, privacy: .public), apiKey=\(self.apiKey, privacy: .public), apiKey length=\(self.apiKey.count)")
+        logger.info("\(method) \(path) — authenticated=\(!self.apiKey.isEmpty), apiKeyLength=\(self.apiKey.count)")
 
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

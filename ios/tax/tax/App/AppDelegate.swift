@@ -20,9 +20,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
         NotificationCenter.default.post(name: .taxDeviceTokenUpdated, object: token)
 
-        guard let taskService else { return }
+        let savedSettings = SettingsStore()
+        guard let service = taskService ?? savedSettings.configuredService else { return }
+        let pushMode = savedSettings.pushMode
         Swift.Task {
-            try? await taskService.registerDevice(token: token)
+            try? await service.registerDevice(token: token, pushMode: pushMode)
         }
     }
 

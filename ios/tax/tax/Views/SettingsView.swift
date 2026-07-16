@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var statusMessage: String?
     @State private var isCheckingHealth = false
     @State private var isRegistering = false
+    @State private var isSyncingPushMode = false
     @State private var showAPIKey = false
 
     var body: some View {
@@ -62,6 +63,26 @@ struct SettingsView: View {
                 Text("API Key")
             } footer: {
                 Text("Saved in Keychain when you tap Save Settings.")
+            }
+
+            Section("Notifications") {
+                Picker("Push notifications", selection: $settings.pushMode) {
+                    ForEach(PushMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .disabled(isSyncingPushMode)
+
+                if isSyncingPushMode {
+                    HStack {
+                        ProgressView()
+                        Text("Syncing…")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .onChange(of: settings.pushMode) { _, _ in
+                syncPushMode()
             }
 
             Section {
@@ -130,12 +151,39 @@ struct SettingsView: View {
         }
     }
 
+    private func syncPushMode() {
+        settings.savePushMode()
+
+        guard !settings.deviceToken.isEmpty else {
+            statusMessage = "Push mode saved locally. Device token is not available yet."
+            return
+        }
+        guard let service = settings.configuredService else {
+            statusMessage = "Push mode saved locally. Configure API key and server URL to sync it."
+            return
+        }
+
+        let token = settings.deviceToken
+        let pushMode = settings.pushMode
+        isSyncingPushMode = true
+        Swift.Task {
+            defer { isSyncingPushMode = false }
+            do {
+                try await service.registerDevice(token: token, pushMode: pushMode)
+                statusMessage = "Push mode synced."
+            } catch {
+                statusMessage = "Push mode saved locally, but sync failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
     private func registerSavedDeviceToken() {
         guard let service = settings.configuredService, !settings.deviceToken.isEmpty else { return }
         let token = settings.deviceToken
+        let pushMode = settings.pushMode
         Swift.Task {
             do {
-                try await service.registerDevice(token: token)
+                try await service.registerDevice(token: token, pushMode: pushMode)
                 statusMessage = "Settings saved and device token registered."
             } catch {
                 statusMessage = "Saved, but device registration failed: \(error.localizedDescription)"
