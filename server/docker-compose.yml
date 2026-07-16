@@ -11,6 +11,7 @@ services:
       - ./keys:/keys:ro
     environment:
       - TAX_DB_PATH=/data/tax.db
+      - TAX_API_KEY=${TAX_API_KEY}
       - TAX_APNS_KEY_PATH=/keys/AuthKey.p8
       - TAX_APNS_KEY_ID=${TAX_APNS_KEY_ID}
       - TAX_APNS_TEAM_ID=${TAX_APNS_TEAM_ID}

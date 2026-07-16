@@ -7,7 +7,6 @@ cd "$ROOT_DIR"
 git pull
 git submodule update --init --recursive
 
-pipx uninstall tax || true
-pipx install -e .
+"$ROOT_DIR/scripts/install.sh"
 
-echo "✅ tax reinstalled via pipx"
+echo "✅ tax reinstalled"

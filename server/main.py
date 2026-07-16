@@ -5,13 +5,13 @@ import sqlite3
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 import jwt
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 DB_PATH = os.environ.get("TAX_DB_PATH", "/data/tax.db")
 API_KEY = os.environ.get("TAX_API_KEY", "")
@@ -38,32 +38,59 @@ def require_api_key(credentials: HTTPAuthorizationCredentials = Depends(security
     return token
 
 
+def _add_missing_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for name, sql_type in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
+
+
 def init_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id TEXT PRIMARY KEY,
-            device_token TEXT NOT NULL,
-            title TEXT,
-            body TEXT,
-            status TEXT DEFAULT 'pending',
-            context TEXT,
-            logs TEXT,
-            reply TEXT,
-            created_at TEXT,
-            updated_at TEXT
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                device_token TEXT NOT NULL,
+                title TEXT,
+                body TEXT,
+                status TEXT DEFAULT 'pending',
+                context TEXT,
+                logs TEXT,
+                reply TEXT,
+                source TEXT,
+                agent TEXT,
+                app TEXT,
+                agterm_session_id TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS device_tokens (
+                token TEXT PRIMARY KEY,
+                preferences TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+        _add_missing_columns(
+            conn,
+            "tasks",
+            {
+                "source": "TEXT",
+                "agent": "TEXT",
+                "app": "TEXT",
+                "agterm_session_id": "TEXT",
+            },
         )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS device_tokens (
-            token TEXT PRIMARY KEY,
-            created_at TEXT,
-            updated_at TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+        _add_missing_columns(conn, "device_tokens", {"preferences": "TEXT"})
+        conn.commit()
+    finally:
+        conn.close()
 
 
 @asynccontextmanager
@@ -81,6 +108,10 @@ class PushPayload(BaseModel):
     body: str
     context: Optional[str] = ""
     logs: Optional[str] = ""
+    source: Optional[str] = ""
+    agent: Optional[str] = ""
+    app: Optional[str] = ""
+    agterm_session_id: Optional[str] = ""
 
 
 class TaskUpdate(BaseModel):
@@ -93,8 +124,13 @@ class ReplyPayload(BaseModel):
     text: str
 
 
+class DevicePreferences(BaseModel):
+    push_mode: Literal["all", "tax", "off"] = "all"
+
+
 class DeviceTokenPayload(BaseModel):
     device_token: str
+    preferences: DevicePreferences = Field(default_factory=DevicePreferences)
 
 
 def db_conn():
@@ -111,10 +147,18 @@ def row_to_dict(row: sqlite3.Row) -> dict:
     return dict(row)
 
 
-async def send_apns(device_token: str, title: str, body: str, task_id: str):
+async def send_apns(
+    device_token: str,
+    title: str,
+    body: str,
+    task_id: str,
+    app_name: str = "",
+    source: str = "",
+    agent: str = "",
+):
     print(f"[tax-server] send_apns task_id={task_id} token_set={bool(device_token)} key_path={APNS_KEY_PATH}")
     if not device_token or not APNS_KEY_PATH or not os.path.exists(APNS_KEY_PATH):
-        print(f"[tax-server] APNS key not configured or device token empty; push not sent")
+        print("[tax-server] APNS key not configured or device token empty; push not sent")
         return
 
     with open(APNS_KEY_PATH) as f:
@@ -136,8 +180,12 @@ async def send_apns(device_token: str, title: str, body: str, task_id: str):
             "alert": {"title": title, "body": body},
             "sound": "default",
             "badge": 1,
+            "category": "TASK",
         },
         "task_id": task_id,
+        "app": app_name,
+        "source": source,
+        "agent": agent,
     }
 
     async with httpx.AsyncClient(http2=True) as client:
@@ -157,37 +205,99 @@ async def send_apns(device_token: str, title: str, body: str, task_id: str):
             print(f"[tax-server] APNs error: {e}")
 
 
-def latest_device_token() -> Optional[str]:
+def device_registration(token: Optional[str] = None) -> Optional[sqlite3.Row]:
     conn = db_conn()
-    row = conn.execute(
-        "SELECT token FROM device_tokens ORDER BY updated_at DESC LIMIT 1"
-    ).fetchone()
-    conn.close()
-    if row:
-        return row["token"]
-    return None
+    try:
+        if token:
+            return conn.execute("SELECT token, preferences FROM device_tokens WHERE token = ?", (token,)).fetchone()
+        return conn.execute("SELECT token, preferences FROM device_tokens ORDER BY updated_at DESC LIMIT 1").fetchone()
+    finally:
+        conn.close()
+
+
+def push_mode_for(registration: Optional[sqlite3.Row]) -> str:
+    if not registration or not registration["preferences"]:
+        return "all"
+    try:
+        preferences = json.loads(registration["preferences"])
+    except (TypeError, json.JSONDecodeError):
+        return "all"
+    mode = preferences.get("push_mode", "all")
+    return mode if mode in {"all", "tax", "off"} else "all"
+
+
+def should_send_push(mode: str, app_name: str) -> tuple[bool, Optional[str]]:
+    if mode == "off":
+        return False, "push_mode_off"
+    if mode == "tax" and app_name != "tax":
+        return False, "app_filtered"
+    return True, None
 
 
 @app.post("/push", dependencies=[Depends(require_api_key)])
 async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     task_id = os.urandom(16).hex()
     created_at = now_iso()
-    device_token = payload.device_token or latest_device_token()
+    registration = device_registration(payload.device_token)
+    device_token = payload.device_token or (registration["token"] if registration else None)
+    mode = push_mode_for(registration)
+    send_push, skip_reason = should_send_push(mode, payload.app or "")
 
-    print(f"[tax-server] /push task_id={task_id} device_token={'set' if device_token else 'empty'} title={payload.title}")
+    print(
+        f"[tax-server] /push task_id={task_id} device_token={'set' if device_token else 'empty'} "
+        f"title={payload.title} source={payload.source} agent={payload.agent} app={payload.app} "
+        f"agterm_session_id={payload.agterm_session_id} push_mode={mode}"
+    )
 
     conn = db_conn()
-    conn.execute(
-        "INSERT INTO tasks (id, device_token, title, body, status, context, logs, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (task_id, device_token or "", payload.title, payload.body, "pending", payload.context, payload.logs, created_at, created_at),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            "INSERT INTO tasks "
+            "(id, device_token, title, body, status, context, logs, source, agent, app, agterm_session_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                task_id,
+                device_token or "",
+                payload.title,
+                payload.body,
+                "pending",
+                payload.context,
+                payload.logs,
+                payload.source,
+                payload.agent,
+                payload.app,
+                payload.agterm_session_id,
+                created_at,
+                created_at,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
-    background_tasks.add_task(send_apns, device_token or "", payload.title, payload.body, task_id)
-    print(f"[tax-server] /push task_id={task_id} enqueued")
+    push_enqueued = bool(send_push and device_token)
+    if push_enqueued:
+        background_tasks.add_task(
+            send_apns,
+            device_token or "",
+            payload.title,
+            payload.body,
+            task_id,
+            payload.app or "",
+            payload.source or "",
+            payload.agent or "",
+        )
+        print(f"[tax-server] /push task_id={task_id} APNs enqueued")
+    else:
+        skip_reason = skip_reason or "device_token_missing"
+        print(f"[tax-server] /push task_id={task_id} APNs skipped reason={skip_reason}")
 
-    return {"ok": True, "task_id": task_id}
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "push_enqueued": push_enqueued,
+        "push_skip_reason": skip_reason,
+    }
 
 
 @app.post("/task/{task_id}/update", dependencies=[Depends(require_api_key)])
@@ -301,17 +411,22 @@ async def register_device(payload: DeviceTokenPayload):
         raise HTTPException(status_code=400, detail="device_token is required")
 
     now = now_iso()
+    preferences = json.dumps(payload.preferences.model_dump(), separators=(",", ":"))
     conn = db_conn()
-    conn.execute(
-        "INSERT INTO device_tokens (token, created_at, updated_at) VALUES (?, ?, ?) "
-        "ON CONFLICT(token) DO UPDATE SET updated_at = excluded.updated_at",
-        (token, now, now),
-    )
-    conn.commit()
-    conn.close()
-    return {"ok": True}
+    try:
+        conn.execute(
+            "INSERT INTO device_tokens (token, preferences, created_at, updated_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(token) DO UPDATE SET preferences = excluded.preferences, updated_at = excluded.updated_at",
+            (token, preferences, now, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    print(f"[tax-server] registered device token_set=true push_mode={payload.preferences.push_mode}")
+    return {"ok": True, "preferences": payload.preferences.model_dump()}
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

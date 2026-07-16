@@ -37,6 +37,7 @@ fi
 # Ensure .env file exists (user will fill APNS values later)
 if [ ! -f "$SERVER_DIR/.env" ]; then
     /usr/bin/cat > "$SERVER_DIR/.env" <<EOF
+TAX_API_KEY=
 TAX_APNS_KEY_ID=
 TAX_APNS_TEAM_ID=
 TAX_APNS_BUNDLE_ID=

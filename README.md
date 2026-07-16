@@ -11,7 +11,8 @@ Push-уведомления и remote reply для AI-агентов, запущ
 
 ## Репозиторий
 
-- `src/tax/` — Python CLI `tax` для Mac.
+- `src/tax/` — Python CLI и фоновый reply-agent для Mac.
+- `extensions/` — расширение pi, создающее задачи после `agent_settled`.
 - `server/` — FastAPI backend на Python.
 - `ios/` — SwiftUI приложение для iOS.
 
@@ -26,14 +27,44 @@ pipx install git+https://github.com/Sergionius/tax.git
 ## Настройка CLI
 
 ```bash
-tax config --server https://138.249.127.23.nip.io --device-token YOUR_IOS_DEVICE_TOKEN
+tax config --server https://tax.138-249-127-23.nip.io --api-key YOUR_API_KEY --device-token YOUR_IOS_DEVICE_TOKEN
 ```
 
 Или через environment:
 
 ```bash
-export TAX_SERVER=https://138.249.127.23.nip.io
+export TAX_SERVER=https://tax.138-249-127-23.nip.io
+export TAX_API_KEY=YOUR_API_KEY
 export TAX_DEVICE_TOKEN=YOUR_IOS_DEVICE_TOKEN
+```
+
+## Pi extension и фоновый агент
+
+Установить extension из репозитория:
+
+```bash
+pi install git:github.com/Sergionius/tax
+```
+
+Запустить мост ответов вручную:
+
+```bash
+tax agent
+curl http://127.0.0.1:17373/health
+```
+
+Extension отправляет push после `agent_settled`, получает `task_id` и передаёт его локальному агенту. Агент ждёт ответ с iPhone и вводит его в исходную сессию через:
+
+```bash
+agtermctl session type --target "$AGTERM_SESSION_ID" --stdin
+```
+
+Если агент временно недоступен, extension сохраняет задачу в `~/.local/state/tax/tasks.jsonl`. После запуска агент импортирует её в persistent SQLite queue.
+
+Для установки CLI, extension и LaunchAgent одной командой:
+
+```bash
+./scripts/install.sh
 ```
 
 ## Использование
@@ -95,6 +126,13 @@ sudo systemctl enable --now tax
 
 ```bash
 sudo systemctl reload caddy
+```
+
+## Локальные проверки
+
+```bash
+python -m pytest
+ruff check server src tests
 ```
 
 ## iOS приложение

@@ -1,0 +1,17 @@
+{
+  "name": "tax-pi-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi notification and remote-reply bridge for tax",
+  "keywords": [
+    "pi-package"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  }
+}

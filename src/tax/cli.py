@@ -41,7 +41,9 @@ def get_headers(config: dict) -> dict:
     return {"Authorization": f"Bearer {get_api_key(config)}"}
 
 
-def send_push(server: str, api_key: str, device_token: str, title: str, body: str, context: str = "", logs: str = "") -> dict:
+def send_push(
+    server: str, api_key: str, device_token: str, title: str, body: str, context: str = "", logs: str = ""
+) -> dict:
     payload = {
         "device_token": device_token,
         "title": title,
@@ -77,28 +79,31 @@ def poll_reply(server: str, api_key: str, task_id: str, timeout: int = 60) -> Op
     return None
 
 
-def run_agtermctl_command(action: str, target: str = "active", value: str = "") -> None:
-    """Send input back to agterm via agtermctl."""
-    if not shutil.which("agtermctl"):
+def send_to_agterm(value: str, target: str = "active") -> None:
+    """Insert and submit text in an agterm session."""
+    executable = shutil.which("agtermctl")
+    if not executable:
         print("[tax] agtermctl not found in PATH", file=sys.stderr)
         return
-
-    if action == "type":
-        subprocess.run(["agtermctl", "type", "--target", target, value], check=False)
-    elif action == "return":
-        subprocess.run(["agtermctl", "key", "--target", target, "Return"], check=False)
+    subprocess.run(
+        [executable, "session", "type", "--target", target, "--stdin"],
+        input=f"{value}\n",
+        text=True,
+        check=False,
+    )
 
 
 def run_agent(argv: list[str], detach: bool = False) -> int:
-    import shutil
-
     config = load_config()
     server = get_server(config)
     api_key = get_api_key(config)
     device_token = get_device_token(config)
 
     if not api_key:
-        print("[tax] error: TAX_API_KEY not set. Add to ~/.zshrc: export TAX_API_KEY=*** then source ~/.zshrc", file=sys.stderr)
+        print(
+            "[tax] error: TAX_API_KEY not set. Add to ~/.zshrc: export TAX_API_KEY=*** then source ~/.zshrc",
+            file=sys.stderr,
+        )
         return 1
 
     if not argv:
@@ -161,8 +166,7 @@ def run_agent(argv: list[str], detach: bool = False) -> int:
     reply = poll_reply(server, api_key, task_id, timeout=300)
     if reply:
         print(f"[tax] reply received: {reply}")
-        run_agtermctl_command("type", value=reply)
-        run_agtermctl_command("return")
+        send_to_agterm(reply)
     else:
         print("[tax] no reply received within timeout")
 
@@ -186,12 +190,28 @@ def cmd_run(args: argparse.Namespace) -> int:
     return run_agent(args.command, detach=args.detach)
 
 
+def cmd_agent(args: argparse.Namespace) -> int:
+    from tax.agent import run_agent_server
+
+    config = load_config()
+    return run_agent_server(
+        server=args.server or get_server(config),
+        api_key=args.api_key or get_api_key(config),
+        port=args.port,
+        state_dir=Path(args.state_dir).expanduser() if args.state_dir else None,
+        poll_ttl=args.poll_ttl,
+    )
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     config = load_config()
     server = get_server(config)
     api_key = get_api_key(config)
     if not api_key:
-        print("[tax] error: TAX_API_KEY not set. Add to ~/.zshrc: export TAX_API_KEY=*** then source ~/.zshrc", file=sys.stderr)
+        print(
+            "[tax] error: TAX_API_KEY not set. Add to ~/.zshrc: export TAX_API_KEY=*** then source ~/.zshrc",
+            file=sys.stderr,
+        )
         return 1
     try:
         r = requests.get(f"{server}/tasks", headers={"Authorization": f"Bearer {api_key}"}, timeout=10)
@@ -206,7 +226,9 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(prog="tax", description="Task Agent eXchange — push and remote reply for AI agents")
+    parser = argparse.ArgumentParser(
+        prog="tax", description="Task Agent eXchange — push and remote reply for AI agents"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # config
@@ -221,6 +243,15 @@ def main() -> int:
     p_run.add_argument("command", nargs=argparse.REMAINDER, help="Command to run")
     p_run.add_argument("--detach", action="store_true", help="Do not wait for reply")
     p_run.set_defaults(func=cmd_run)
+
+    # agent
+    p_agent = subparsers.add_parser("agent", help="Run the background reply bridge for pi and agterm")
+    p_agent.add_argument("--server", help="Backend URL (defaults to tax config or TAX_SERVER)")
+    p_agent.add_argument("--api-key", help="Backend API key (defaults to tax config or TAX_API_KEY)")
+    p_agent.add_argument("--port", type=int, default=17373, help="Loopback HTTP port (default: 17373)")
+    p_agent.add_argument("--state-dir", help="Persistent state directory")
+    p_agent.add_argument("--poll-ttl", type=int, default=86400, help="Reply polling lifetime in seconds")
+    p_agent.set_defaults(func=cmd_agent)
 
     # status
     p_status = subparsers.add_parser("status", help="List recent tasks on backend")

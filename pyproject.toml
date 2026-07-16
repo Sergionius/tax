@@ -1,6 +1,6 @@
 [project]
 name = "tax"
-version = "0.1.1"
+version = "0.2.0"
 description = "Task Agent eXchange — push notifications and remote reply for AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -38,3 +38,7 @@ packages = ["src/tax"]
 
 [tool.ruff]
 line-length = 120
+
+[tool.pytest.ini_options]
+pythonpath = [".", "src"]
+testpaths = ["tests"]
