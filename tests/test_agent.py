@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -86,6 +87,63 @@ def test_watch_ignores_terminal_tasks(monkeypatch, tmp_path):
 def test_executor_has_bounded_worker_count(tmp_path):
     agent = TaxAgent("https://tax.example", "secret", tmp_path, max_workers=3)
     assert agent._executor._max_workers == 3
+    agent.stop()
+
+
+def test_stop_is_idempotent_across_concurrent_calls(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    shutdown = Mock(wraps=agent._executor.shutdown)
+    monkeypatch.setattr(agent._executor, "shutdown", shutdown)
+    threads = [threading.Thread(target=agent.stop) for _ in range(2)]
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    agent.stop()
+
+    assert agent.stop_event.is_set()
+    shutdown.assert_called_once_with(wait=False, cancel_futures=True)
+
+
+def test_watch_ignores_tasks_after_stop(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    agent.store.add(WatchedTask(task_id="pending"))
+    submit = Mock()
+    monkeypatch.setattr(agent._executor, "submit", submit)
+
+    agent.stop()
+    agent.watch("pending")
+
+    submit.assert_not_called()
+    assert agent._watching == set()
+
+
+def test_import_loop_uses_regular_interval_after_success(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    wait = Mock(side_effect=[False, True])
+    import_fallback = Mock(return_value=0)
+    monkeypatch.setattr(agent.stop_event, "wait", wait)
+    monkeypatch.setattr(agent, "import_fallback", import_fallback)
+
+    agent._import_loop()
+
+    assert [item.args[0] for item in wait.call_args_list] == [5.0, 5.0]
+    import_fallback.assert_called_once_with()
+    agent.stop()
+
+
+def test_import_loop_retries_after_only_retry_delay(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    wait = Mock(side_effect=[False, True])
+    import_fallback = Mock(side_effect=RuntimeError("broken import"))
+    monkeypatch.setattr(agent.stop_event, "wait", wait)
+    monkeypatch.setattr(agent, "import_fallback", import_fallback)
+
+    agent._import_loop()
+
+    assert [item.args[0] for item in wait.call_args_list] == [5.0, agent.retry_delay]
+    import_fallback.assert_called_once_with()
     agent.stop()
 
 

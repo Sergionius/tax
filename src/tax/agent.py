@@ -24,6 +24,7 @@ from pydantic import BaseModel
 DEFAULT_PORT = 17373
 DEFAULT_POLL_TTL = 24 * 60 * 60
 DEFAULT_MAX_WORKERS = 16
+DEFAULT_IMPORT_INTERVAL = 5.0
 RUNNABLE_STATUSES = {"pending", "waiting_reply", "reply_received", "delivery_failed"}
 
 
@@ -179,6 +180,8 @@ class TaxAgent:
         self._importer: Optional[threading.Thread] = None
         self._fallback_offset = 0
         self._started = False
+        self._stopped = False
+        self._stop_lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="tax-task")
 
     @property
@@ -195,8 +198,12 @@ class TaxAgent:
         self._importer.start()
 
     def stop(self) -> None:
-        self.stop_event.set()
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        with self._stop_lock:
+            if self._stopped:
+                return
+            self._stopped = True
+            self.stop_event.set()
+            self._executor.shutdown(wait=False, cancel_futures=True)
 
     def _discard_old_fallback(self) -> None:
         try:
@@ -222,6 +229,8 @@ class TaxAgent:
         return created
 
     def watch(self, task_id: str) -> None:
+        if self.stop_event.is_set():
+            return
         row = self.store.get(task_id)
         if not row or row["status"] not in RUNNABLE_STATUSES:
             return
@@ -367,12 +376,15 @@ class TaxAgent:
         return imported
 
     def _import_loop(self) -> None:
-        while not self.stop_event.wait(5):
+        delay = DEFAULT_IMPORT_INTERVAL
+        while not self.stop_event.wait(delay):
             try:
                 self.import_fallback()
             except Exception as error:
                 print(f"[tax-agent] fallback importer failed: {error}")
-                self.stop_event.wait(self.retry_delay)
+                delay = self.retry_delay
+            else:
+                delay = DEFAULT_IMPORT_INTERVAL
 
 
 def create_app(agent: TaxAgent, shutdown_callback: Optional[Callable[[], None]] = None) -> FastAPI:
