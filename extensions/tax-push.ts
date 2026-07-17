@@ -157,6 +157,13 @@ function log(
   }
 }
 
+function logQuietly(message: string, level: "info" | "warning" = "info") {
+  if (process.env.TAX_PUSH_DEBUG !== "1") return;
+  const output = `[${EXTENSION_NAME}] ${message}`;
+  if (level === "warning") console.warn(output);
+  else console.log(output);
+}
+
 export default function (pi: ExtensionAPI) {
   let currentPrompt = "";
   let lastAssistantFromEvent: { id?: string; message: AnyMessage } | undefined;
@@ -217,11 +224,11 @@ export default function (pi: ExtensionAPI) {
       const handoff: TaskHandoff = { task_id: taskID, ...metadata };
       try {
         await handoffToLocalAgent(handoff);
-        log(ctx, `Push sent; watching task ${taskID.slice(0, 8)}`, "info");
+        logQuietly(`Push sent; watching task ${taskID.slice(0, 8)}`);
       } catch (localError) {
         await appendFallback(handoff);
         const reason = localError instanceof Error ? localError.message : String(localError);
-        log(ctx, `Push sent; local agent unavailable (${reason}), task queued`, "warning");
+        logQuietly(`Push sent; local agent unavailable (${reason}), task queued`, "warning");
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
