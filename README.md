@@ -59,7 +59,7 @@ Extension отправляет push после `agent_settled`, получает
 agtermctl session type --target "$AGTERM_SESSION_ID" --stdin
 ```
 
-Если агент временно недоступен, extension сохраняет задачу в `~/.local/state/tax/tasks.jsonl`. После запуска агент импортирует её в persistent SQLite queue.
+Если локальный HTTP endpoint временно недоступен во время работы агента, extension сохраняет задачу в `~/.local/state/tax/tasks.jsonl`. Агент читает только записи, добавленные после его запуска. При следующем запуске старый fallback и SQLite-состояние очищаются: они нужны только для дедупликации и повторных попыток текущего процесса, а история хранится на backend/iOS.
 
 Для установки CLI, extension и LaunchAgent одной командой:
 

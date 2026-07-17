@@ -72,6 +72,7 @@ For each received task:
 4. If timeout:
    - Log and forget, or retry later.
 5. Optionally mark task delivered by `POST /task/{task_id}/update` with `status: delivered`.
+6. Keep the delivered row until shutdown to reject duplicate handoffs; clear all local rows on the next startup.
 
 ## Fallback: file-based task queue
 
@@ -80,7 +81,7 @@ If the local HTTP server is unreachable, the pi extension can append to `~/.pi/t
 {"task_id":"...","agterm_session_id":"...","timestamp":"..."}
 ```
 
-`tax-agent` reads this file every few seconds and processes new lines.
+`tax-agent` reads this file every few seconds and processes each new line once. The queue and local SQLite rows are runtime-only: startup discards everything created before the current agent process. Historical tasks remain available through the backend/iOS, but stale replies are never injected after a Mac agent restart.
 
 ## agterm injection
 
@@ -140,12 +141,13 @@ Update `tax-push.ts`:
 
 1. Does `agtermctl session type` support `--id`? Need to verify.
 2. Should tax-agent use long-polling or repeated short polling? Use `?wait=true` which already long-polls for 30s.
-3. Should tax-agent keep a persistent queue of pending tasks? Yes, in memory list + optional jsonl file.
+3. Should tax-agent recover pending tasks after restart? No. SQLite and JSONL are scoped to the current process lifetime so stale mobile replies cannot be injected into a later session.
 
 ## Acceptance criteria
 
 - `tax-agent` starts and listens on a local port.
 - pi extension can hand it a task ID.
 - When iOS replies, the text appears in the active agterm session.
-- If `tax-agent` is not running, extension falls back to jsonl and nothing is lost.
+- If the local endpoint briefly fails while `tax-agent` is running, extension falls back to JSONL and the current process imports it.
+- Tasks queued before an agent restart are intentionally discarded.
 - Agent handles errors gracefully without blocking pi.
