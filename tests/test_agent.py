@@ -5,11 +5,48 @@ from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
-from tax.agent import AgentInstanceLock, TaxAgent, WatchedTask, create_app
+from tax.agent import AgentInstanceLock, AgentStore, TaxAgent, WatchedTask, create_app
 
 
 def make_agent(tmp_path: Path) -> TaxAgent:
     return TaxAgent("https://tax.example", "secret", tmp_path, retry_delay=0.01)
+
+
+def test_store_closes_every_database_connection(monkeypatch, tmp_path):
+    store = AgentStore(tmp_path / "agent.db")
+    real_connect = store.connect
+    connections = []
+
+    class TrackedConnection:
+        def __init__(self):
+            self.connection = real_connect()
+            self.closed = False
+            connections.append(self)
+
+        def __enter__(self):
+            self.connection.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.connection.__exit__(*args)
+
+        def execute(self, *args, **kwargs):
+            return self.connection.execute(*args, **kwargs)
+
+        def close(self):
+            self.closed = True
+            self.connection.close()
+
+    monkeypatch.setattr(store, "connect", TrackedConnection)
+
+    store.init_db()
+    assert store.add(WatchedTask(task_id="task-1")) is True
+    assert store.get("task-1")["status"] == "pending"
+    store.update("task-1", "waiting_reply")
+    store.reset()
+
+    assert len(connections) == 6
+    assert all(connection.closed for connection in connections)
 
 
 def test_store_deduplicates_tasks(monkeypatch, tmp_path):

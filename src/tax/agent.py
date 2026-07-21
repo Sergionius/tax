@@ -12,6 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO, Optional
@@ -57,7 +58,7 @@ class AgentStore:
         return conn
 
     def init_db(self) -> None:
-        with self.connect() as conn:
+        with closing(self.connect()) as conn, conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS watched_tasks (
@@ -78,7 +79,7 @@ class AgentStore:
 
     def add(self, task: WatchedTask) -> bool:
         now = now_iso()
-        with self.connect() as conn:
+        with closing(self.connect()) as conn, conn:
             cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO watched_tasks
@@ -98,14 +99,14 @@ class AgentStore:
             return cursor.rowcount > 0
 
     def reset(self) -> None:
-        with self.connect() as conn:
+        with closing(self.connect()) as conn, conn:
             conn.execute("DELETE FROM watched_tasks")
         # VACUUM must run outside the transaction used by DELETE.
-        with self.connect() as conn:
+        with closing(self.connect()) as conn:
             conn.execute("VACUUM")
 
     def get(self, task_id: str) -> Optional[sqlite3.Row]:
-        with self.connect() as conn:
+        with closing(self.connect()) as conn:
             return conn.execute("SELECT * FROM watched_tasks WHERE task_id = ?", (task_id,)).fetchone()
 
     def update(
@@ -125,7 +126,7 @@ class AgentStore:
         if increment_attempts:
             assignments.append("attempts = attempts + 1")
         values.append(task_id)
-        with self.connect() as conn:
+        with closing(self.connect()) as conn, conn:
             conn.execute(
                 f"UPDATE watched_tasks SET {', '.join(assignments)} WHERE task_id = ?",
                 values,
