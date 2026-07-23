@@ -28,6 +28,7 @@ DEFAULT_MAX_WORKERS = 16
 DEFAULT_IMPORT_INTERVAL = 5.0
 DEFAULT_REPLY_POLL_INTERVAL = 5.0
 DEFAULT_CLEANUP_INTERVAL = 24 * 60 * 60
+LEGACY_POLL_BATCH_SIZE = 20
 TERMINAL_RETENTION_DAYS = 7
 DELIVERABLE_STATUSES = {"reply_received"}
 TERMINAL_STATUSES = {"delivered", "delivery_failed"}
@@ -239,6 +240,8 @@ class TaxAgent:
         self._reply_poller: Optional[threading.Thread] = None
         self._fallback_offset = 0
         self._next_cleanup_at = time.monotonic() + DEFAULT_CLEANUP_INTERVAL
+        self._replies_endpoint_available: Optional[bool] = None
+        self._legacy_poll_offset = 0
         self._started = False
         self._stopped = False
         self._stop_lock = threading.Lock()
@@ -381,19 +384,7 @@ class TaxAgent:
         if self._mark_backend_status(row["task_id"], backend_status):
             self.store.update(row["task_id"], backend_status, error=row["last_error"])
 
-    def poll_backend_replies(self) -> int:
-        response = None
-        try:
-            response = requests.get(f"{self.server}/replies", headers=self.headers, timeout=15)
-            response.raise_for_status()
-            payload = response.json()
-            tasks = payload.get("tasks", [])
-            if not isinstance(tasks, list):
-                raise ValueError("backend replies payload has no task list")
-        finally:
-            if response is not None:
-                response.close()
-
+    def _schedule_backend_tasks(self, tasks: list[object]) -> int:
         scheduled = 0
         for item in tasks:
             if not isinstance(item, dict):
@@ -422,6 +413,66 @@ class TaxAgent:
                 self.watch(task_id)
                 scheduled += 1
         return scheduled
+
+    def _poll_legacy_replies(self) -> int:
+        rows = self.store.list_by_status({"pending", "waiting_reply", "expired"})
+        if not rows:
+            self._legacy_poll_offset = 0
+            return 0
+
+        start = self._legacy_poll_offset % len(rows)
+        count = min(LEGACY_POLL_BATCH_SIZE, len(rows))
+        selected = [rows[(start + index) % len(rows)] for index in range(count)]
+        self._legacy_poll_offset = (start + count) % len(rows)
+        tasks = []
+        for row in selected:
+            response = None
+            try:
+                response = requests.get(
+                    f"{self.server}/task/{row['task_id']}/reply",
+                    params={"wait": "false"},
+                    headers=self.headers,
+                    timeout=10,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                reply = payload.get("reply") if payload.get("ok") else None
+                if reply:
+                    tasks.append(
+                        {
+                            "id": row["task_id"],
+                            "reply": reply,
+                            "agterm_session_id": row["agterm_session_id"],
+                            "source": row["source"],
+                            "agent": row["agent"],
+                            "app": row["app"],
+                        }
+                    )
+            finally:
+                if response is not None:
+                    response.close()
+        return self._schedule_backend_tasks(tasks)
+
+    def poll_backend_replies(self) -> int:
+        if self._replies_endpoint_available is False:
+            return self._poll_legacy_replies()
+
+        response = None
+        try:
+            response = requests.get(f"{self.server}/replies", headers=self.headers, timeout=15)
+            if response.status_code == 404:
+                self._replies_endpoint_available = False
+                return self._poll_legacy_replies()
+            response.raise_for_status()
+            payload = response.json()
+            tasks = payload.get("tasks", [])
+            if not isinstance(tasks, list):
+                raise ValueError("backend replies payload has no task list")
+            self._replies_endpoint_available = True
+            return self._schedule_backend_tasks(tasks)
+        finally:
+            if response is not None:
+                response.close()
 
     def _reply_poll_loop(self) -> None:
         delay = 0.0

@@ -255,6 +255,33 @@ def test_poll_reply_delivers_and_marks_backend(monkeypatch, tmp_path):
     agent.stop()
 
 
+def test_legacy_backend_fallback_polls_saved_tasks(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    agent.store.add(WatchedTask(task_id="task-1", agterm_session_id="session-1"))
+    not_found = Mock(status_code=404)
+    reply_response = Mock(status_code=200)
+    reply_response.raise_for_status.return_value = None
+    reply_response.json.return_value = {"ok": True, "reply": "continue"}
+    post_response = Mock()
+    post_response.raise_for_status.return_value = None
+    post_response.json.return_value = {"ok": True}
+    responses = iter([not_found, reply_response])
+    inject = Mock()
+    monkeypatch.setattr("tax.agent.requests.get", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr("tax.agent.requests.post", lambda *args, **kwargs: post_response)
+    monkeypatch.setattr(agent, "inject_reply", inject)
+    monkeypatch.setattr(agent, "watch", agent._watch_task)
+
+    assert agent.poll_backend_replies() == 1
+
+    assert agent._replies_endpoint_available is False
+    assert agent.store.get("task-1")["status"] == "delivered"
+    inject.assert_called_once_with("continue", "session-1")
+    not_found.close.assert_called_once()
+    reply_response.close.assert_called_once()
+    agent.stop()
+
+
 def test_closed_session_is_marked_failed_without_retry(monkeypatch, tmp_path):
     agent = make_agent(tmp_path)
     task = WatchedTask(task_id="task-1", agterm_session_id="closed-session")
