@@ -388,6 +388,19 @@ async def get_reply(task_id: str, wait: bool = False):
     return {"ok": False, "reply": None}
 
 
+@app.get("/replies", dependencies=[Depends(require_api_key)])
+async def list_pending_replies(limit: int = 500):
+    conn = db_conn()
+    rows = conn.execute(
+        "SELECT id, reply, agterm_session_id, source, agent, app, updated_at "
+        "FROM tasks WHERE status = 'replied' AND reply IS NOT NULL "
+        "ORDER BY updated_at LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return {"ok": True, "tasks": [row_to_dict(row) for row in rows]}
+
+
 @app.get("/tasks", dependencies=[Depends(require_api_key)])
 async def list_tasks(limit: int = 50, offset: int = 0):
     conn = db_conn()

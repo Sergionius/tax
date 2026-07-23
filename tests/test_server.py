@@ -124,6 +124,23 @@ def test_push_stores_metadata_and_reply_flow(monkeypatch, tmp_path):
         reply = client.get(f"/task/{task_id}/reply", headers=AUTH).json()
         assert reply == {"ok": True, "reply": "continue"}
 
+        pending_replies = client.get("/replies", headers=AUTH).json()["tasks"]
+        assert pending_replies == [
+            {
+                "id": task_id,
+                "reply": "continue",
+                "agterm_session_id": "session-123",
+                "source": "pi-extension",
+                "agent": "pi",
+                "app": "tax",
+                "updated_at": pending_replies[0]["updated_at"],
+            }
+        ]
+
+        delivered = client.post(f"/task/{task_id}/update", headers=AUTH, json={"status": "delivered"})
+        assert delivered.json()["ok"] is True
+        assert client.get("/replies", headers=AUTH).json()["tasks"] == []
+
 
 def test_rejects_unknown_push_mode(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:

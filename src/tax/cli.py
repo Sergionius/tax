@@ -250,7 +250,12 @@ def main() -> int:
     p_agent.add_argument("--api-key", help="Backend API key (defaults to tax config or TAX_API_KEY)")
     p_agent.add_argument("--port", type=int, default=17373, help="Loopback HTTP port (default: 17373)")
     p_agent.add_argument("--state-dir", help="Persistent state directory")
-    p_agent.add_argument("--poll-ttl", type=int, default=86400, help="Reply polling lifetime in seconds")
+    p_agent.add_argument(
+        "--poll-ttl",
+        type=int,
+        default=86400,
+        help="Deprecated compatibility option; persistent reply polling has no TTL",
+    )
     p_agent.set_defaults(func=cmd_agent)
 
     # status

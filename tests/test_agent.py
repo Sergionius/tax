@@ -1,4 +1,5 @@
 import json
+import subprocess
 import threading
 from pathlib import Path
 from unittest.mock import Mock
@@ -57,24 +58,23 @@ def test_store_deduplicates_tasks(monkeypatch, tmp_path):
 
     assert agent.register(task) is True
     assert agent.register(task) is False
-    assert watched == ["task-1"]
+    assert watched == []
     assert agent.store.get("task-1")["agterm_session_id"] == "session-1"
     agent.stop()
 
 
-def test_start_discards_old_database_and_fallback(monkeypatch, tmp_path):
+def test_start_preserves_database_and_imports_fallback(monkeypatch, tmp_path):
     agent = make_agent(tmp_path)
     agent.store.add(WatchedTask(task_id="old-db"))
     agent.fallback_path.write_text(json.dumps({"task_id": "old-file"}) + "\n", encoding="utf-8")
-    watched = []
-    monkeypatch.setattr(agent, "watch", watched.append)
+    monkeypatch.setattr(agent, "poll_backend_replies", lambda: 0)
 
     agent.start()
 
-    assert agent.store.get("old-db") is None
-    assert agent.fallback_path.read_bytes() == b""
+    assert agent.store.get("old-db")["status"] == "pending"
+    assert agent.store.get("old-file")["status"] == "pending"
+    assert agent.fallback_path.read_bytes() != b""
     assert agent.import_fallback() == 0
-    assert watched == []
     agent.stop()
 
 
@@ -219,21 +219,32 @@ def test_inject_reply_uses_target_stdin_and_newline(monkeypatch, tmp_path):
 
 def test_poll_reply_delivers_and_marks_backend(monkeypatch, tmp_path):
     agent = make_agent(tmp_path)
-    task = WatchedTask(task_id="task-1", agterm_session_id="session-1", app="tax")
-    agent.store.add(task)
-
     get_response = Mock()
     get_response.raise_for_status.return_value = None
-    get_response.json.return_value = {"ok": True, "reply": "ship it"}
+    get_response.json.return_value = {
+        "ok": True,
+        "tasks": [
+            {
+                "id": "task-1",
+                "reply": "ship it",
+                "agterm_session_id": "session-1",
+                "source": "pi-extension",
+                "agent": "pi",
+                "app": "tax",
+            }
+        ],
+    }
     post_response = Mock()
     post_response.raise_for_status.return_value = None
+    post_response.json.return_value = {"ok": True}
     injected = []
 
     monkeypatch.setattr("tax.agent.requests.get", lambda *args, **kwargs: get_response)
     monkeypatch.setattr("tax.agent.requests.post", lambda *args, **kwargs: post_response)
     monkeypatch.setattr(agent, "inject_reply", lambda reply, target: injected.append((reply, target)))
+    monkeypatch.setattr(agent, "watch", agent._watch_task)
 
-    agent._watch_task("task-1")
+    assert agent.poll_backend_replies() == 1
 
     assert injected == [("ship it", "session-1")]
     row = agent.store.get("task-1")
@@ -241,6 +252,60 @@ def test_poll_reply_delivers_and_marks_backend(monkeypatch, tmp_path):
     assert row["reply"] == "ship it"
     get_response.close.assert_called_once()
     post_response.close.assert_called_once()
+    agent.stop()
+
+
+def test_closed_session_is_marked_failed_without_retry(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    task = WatchedTask(task_id="task-1", agterm_session_id="closed-session")
+    agent.store.record_reply(task, "continue")
+    post_response = Mock()
+    post_response.raise_for_status.return_value = None
+    post_response.json.return_value = {"ok": True}
+    inject = Mock(side_effect=subprocess.CalledProcessError(1, ["agtermctl"]))
+    monkeypatch.setattr("tax.agent.requests.post", lambda *args, **kwargs: post_response)
+    monkeypatch.setattr(agent, "inject_reply", inject)
+
+    agent._watch_task("task-1")
+
+    row = agent.store.get("task-1")
+    assert row["status"] == "delivery_failed"
+    assert row["attempts"] == 1
+    inject.assert_called_once_with("continue", "closed-session")
+    assert post_response.json.call_count == 1
+    agent.stop()
+
+
+def test_backend_sync_failure_never_reinjects_reply(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    task = WatchedTask(task_id="task-1", agterm_session_id="session-1")
+    agent.store.record_reply(task, "continue")
+    inject = Mock()
+    monkeypatch.setattr(agent, "inject_reply", inject)
+    monkeypatch.setattr(agent, "_mark_backend_status", Mock(side_effect=[False, True]))
+
+    agent._watch_task("task-1")
+    assert agent.store.get("task-1")["status"] == "delivered_pending_sync"
+
+    agent._sync_local_terminal_status(agent.store.get("task-1"))
+
+    assert agent.store.get("task-1")["status"] == "delivered"
+    inject.assert_called_once_with("continue", "session-1")
+    agent.stop()
+
+
+def test_cleanup_removes_only_old_terminal_tasks(tmp_path):
+    agent = make_agent(tmp_path)
+    for task_id, status in (("delivered", "delivered"), ("failed", "delivery_failed"), ("pending", "pending")):
+        agent.store.add(WatchedTask(task_id=task_id))
+        agent.store.update(task_id, status)
+    with agent.store.connect() as conn:
+        conn.execute("UPDATE watched_tasks SET updated_at = '2000-01-01T00:00:00+00:00'")
+
+    assert agent.store.cleanup_terminal() == 2
+    assert agent.store.get("delivered") is None
+    assert agent.store.get("failed") is None
+    assert agent.store.get("pending") is not None
     agent.stop()
 
 
