@@ -3,7 +3,19 @@ name: Python quality
 on:
   push:
     branches: [main]
+    paths:
+      - 'server/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - '.github/workflows/python.yml'
   pull_request:
+    paths:
+      - 'server/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - '.github/workflows/python.yml'
 
 concurrency:
   group: python-${{ github.ref }}
