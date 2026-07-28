@@ -46,7 +46,7 @@ jobs:
             SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
       - name: Upload unit test result
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-unit-tests-xcresult
           path: unit-tests.xcresult
@@ -71,7 +71,7 @@ jobs:
             SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
       - name: Upload UI test result
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-ui-tests-xcresult
           path: ui-tests.xcresult
