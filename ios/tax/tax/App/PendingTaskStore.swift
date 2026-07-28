@@ -1,15 +1,23 @@
 import Foundation
 
-enum PendingTaskStore {
-    private static let key = "tax.pendingTaskID"
+struct PendingTaskStore {
+    private let key = "tax.pendingTaskID"
+    private let defaults: UserDefaults
 
-    static func save(_ taskID: String) {
-        UserDefaults.standard.set(taskID, forKey: key)
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
     }
 
-    static func consume() -> String? {
-        let taskID = UserDefaults.standard.string(forKey: key)
-        UserDefaults.standard.removeObject(forKey: key)
+    @discardableResult
+    func save(_ taskID: String) -> Bool {
+        guard !taskID.isEmpty, defaults.string(forKey: key) != taskID else { return false }
+        defaults.set(taskID, forKey: key)
+        return true
+    }
+
+    func consume() -> String? {
+        let taskID = defaults.string(forKey: key)
+        defaults.removeObject(forKey: key)
         return taskID
     }
 }

@@ -3,28 +3,17 @@ import SwiftUI
 struct TaskListView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(AppState.self) private var appState
-    @State private var tasks: [Task] = []
-    @State private var navigationPath: [String] = []
-    @State private var errorMessage: String?
-    @State private var isLoading = false
-    @State private var isRefreshing = false
+    @State private var store = TaskListStore()
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
+        @Bindable var appState = appState
+
+        NavigationStack(path: $appState.navigationPath) {
             Group {
-                if tasks.isEmpty, !isLoading {
-                    ContentUnavailableView(
-                        "No Tasks",
-                        systemImage: "tray",
-                        description: Text(settings.apiKey.isEmpty ? "Add your API key in Settings." : "Pull to refresh or wait for a push notification.")
-                    )
+                if !store.tasks.isEmpty {
+                    taskList
                 } else {
-                    List(tasks) { task in
-                        NavigationLink(value: task.id) {
-                            TaskRowView(task: task)
-                        }
-                    }
-                    .refreshable { await load(showOverlay: false) }
+                    emptyContent
                 }
             }
             .navigationTitle("Tasks")
@@ -35,76 +24,75 @@ struct TaskListView: View {
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
-                    .disabled(isLoading)
-                }
-            }
-            .overlay {
-                if isLoading {
-                    ProgressView("Loading…")
-                        .padding()
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .disabled(store.state == .loading)
+                    .accessibilityIdentifier("tasks.refresh")
                 }
             }
             .task { await load() }
-            .onAppear {
-                openSelectedTaskIfNeeded(appState.selectedTaskID)
-            }
             .onChange(of: appState.refreshToken) { _, _ in
-                Swift.Task { await load(showOverlay: !isRefreshing) }
-            }
-            .onChange(of: appState.selectedTaskID) { _, taskID in
-                openSelectedTaskIfNeeded(taskID)
+                Swift.Task { await load(showOverlay: false) }
             }
             .navigationDestination(for: String.self) { taskID in
                 TaskDetailView(taskID: taskID)
             }
             .alert("Error", isPresented: errorBinding) {
-                Button("OK") { errorMessage = nil }
+                Button("Retry") { Swift.Task { await load() } }
+                Button("OK", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
             }
         }
     }
 
+    private var taskList: some View {
+        List(store.tasks) { task in
+            NavigationLink(value: task.id) {
+                TaskRowView(task: task)
+            }
+            .accessibilityIdentifier("task.\(task.id)")
+        }
+        .refreshable { await load(showOverlay: false) }
+    }
+
+    @ViewBuilder
+    private var emptyContent: some View {
+        switch store.state {
+        case .idle, .empty:
+            ContentUnavailableView(
+                "No Tasks",
+                systemImage: "tray",
+                description: Text(settings.apiKey.isEmpty ? "Add your API key in Settings." : "Pull to refresh or wait for a push notification.")
+            )
+        case .loading:
+            ProgressView("Loading…")
+        case let .error(message):
+            ContentUnavailableView {
+                Label(settings.apiKey.isEmpty ? "Configuration Required" : "Could Not Load Tasks", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("Retry") { Swift.Task { await load() } }
+                    .accessibilityIdentifier("tasks.retry")
+            }
+        case .content:
+            EmptyView()
+        }
+    }
+
+    private var errorMessage: String? {
+        guard !store.tasks.isEmpty, case let .error(message) = store.state else { return nil }
+        return message
+    }
+
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
+            set: { if !$0 { store.dismissError() } }
         )
     }
 
-    private func openSelectedTaskIfNeeded(_ taskID: String?) {
-        guard let taskID else { return }
-        defer { appState.clearSelectedTask() }
-        guard navigationPath.last != taskID else { return }
-        navigationPath.append(taskID)
-    }
-
     private func load(showOverlay: Bool = true) async {
-        guard !isLoading, !isRefreshing else { return }
-
-        guard let service = settings.configuredService else {
-            tasks = []
-            errorMessage = "Configure API key and server URL in Settings."
-            return
-        }
-
-        if showOverlay {
-            isLoading = true
-        } else {
-            isRefreshing = true
-        }
-        defer {
-            isLoading = false
-            isRefreshing = false
-        }
-
-        do {
-            tasks = try await service.fetchTasks()
-        } catch is CancellationError {
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await store.load(using: settings.configuredService, showOverlay: showOverlay)
     }
 }
 
@@ -118,7 +106,7 @@ private struct TaskRowView: View {
                     .font(.headline)
                     .lineLimit(2)
                 Spacer()
-                Text(task.status)
+                Text(task.displayStatus)
                     .font(.caption)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -141,11 +129,11 @@ private struct TaskRowView: View {
     }
 
     private var statusColor: Color {
-        switch task.status.lowercased() {
-        case "replied", "done", "completed": .green
-        case "failed", "error": .red
-        case "pending", "new": .orange
-        default: .secondary
+        switch task.statusKind {
+        case .success: .green
+        case .failure: .red
+        case .pending: .orange
+        case .unknown: .secondary
         }
     }
 }

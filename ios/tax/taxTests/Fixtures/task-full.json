@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "task": {
+    "id": "task-123",
+    "device_token": "abc123",
+    "title": "Tax report",
+    "body": "Review the report",
+    "status": "pending",
+    "context": "trusted context",
+    "logs": "agent logs",
+    "reply": "Looks good",
+    "source": "pi",
+    "agent": "pi",
+    "app": "tax",
+    "agterm_session_id": "session-1",
+    "created_at": "2026-07-28T08:30:45.123456+00:00",
+    "updated_at": "2026-07-28T08:31:00+00:00"
+  }
+}

@@ -15,14 +15,21 @@ CONFIG_PATH = Path.home() / ".config" / "tax" / "config.json"
 
 
 def load_config() -> dict:
-    if CONFIG_PATH.exists():
-        return json.loads(CONFIG_PATH.read_text())
-    return {}
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"invalid tax config: {error}") from error
+    if not isinstance(data, dict):
+        raise ValueError("invalid tax config: expected a JSON object")
+    return data
 
 
 def save_config(config: dict) -> None:
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(config, indent=2))
+    CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    CONFIG_PATH.chmod(0o600)
 
 
 def get_server(config: dict) -> str:
@@ -182,7 +189,12 @@ def cmd_config(args: argparse.Namespace) -> int:
     if args.device_token:
         config["device_token"] = args.device_token
     save_config(config)
-    print(json.dumps(config, indent=2))
+    safe_config = {**config}
+    if safe_config.get("api_key"):
+        safe_config["api_key"] = "***"
+    if safe_config.get("device_token"):
+        safe_config["device_token"] = "***"
+    print(json.dumps(safe_config, indent=2))
     return 0
 
 
@@ -263,7 +275,11 @@ def main() -> int:
     p_status.set_defaults(func=cmd_status)
 
     args = parser.parse_args()
-    return args.func(args)
+    try:
+        return args.func(args)
+    except ValueError as error:
+        print(f"[tax] error: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

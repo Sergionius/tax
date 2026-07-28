@@ -6,19 +6,18 @@ enum AppTab: Hashable {
     case settings
 }
 
+@MainActor
 @Observable
 final class AppState {
     var selectedTab: AppTab = .tasks
-    var selectedTaskID: String?
+    var navigationPath: [String] = []
     var refreshToken = UUID()
 
     func openTask(id: String) {
+        guard !id.isEmpty else { return }
         selectedTab = .tasks
-        selectedTaskID = id
-    }
-
-    func clearSelectedTask() {
-        selectedTaskID = nil
+        guard navigationPath.last != id else { return }
+        navigationPath.append(id)
     }
 
     func requestRefresh() {

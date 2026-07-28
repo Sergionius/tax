@@ -7,11 +7,11 @@ struct ReplyView: View {
     let task: Task
     let onSent: (Task) -> Void
 
-    @State private var replyText = ""
-    @State private var errorMessage: String?
-    @State private var isSending = false
+    @State private var store = ReplyStore()
 
     var body: some View {
+        @Bindable var store = store
+
         Form {
             Section("Task") {
                 Text(task.title)
@@ -22,9 +22,10 @@ struct ReplyView: View {
             }
 
             Section("Reply") {
-                TextEditor(text: $replyText)
+                TextEditor(text: $store.replyText)
                     .frame(minHeight: 180)
                     .accessibilityLabel("Reply text")
+                    .accessibilityIdentifier("reply.text")
             }
         }
         .navigationTitle("Reply")
@@ -32,47 +33,33 @@ struct ReplyView: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
-                    .disabled(isSending)
+                    .disabled(store.isSending)
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button(isSending ? "Sending…" : "Send") {
+                Button(store.isSending ? "Sending…" : "Send") {
                     Swift.Task { await send() }
                 }
-                .disabled(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+                .disabled(!store.canSend)
+                .accessibilityIdentifier("reply.send")
             }
         }
         .alert("Error", isPresented: errorBinding) {
-            Button("OK") { errorMessage = nil }
+            Button("OK") { store.dismissError() }
         } message: {
-            Text(errorMessage ?? "")
+            Text(store.errorMessage ?? "")
         }
     }
 
     private var errorBinding: Binding<Bool> {
         Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
+            get: { store.errorMessage != nil },
+            set: { if !$0 { store.dismissError() } }
         )
     }
 
     private func send() async {
-        guard let service = settings.configuredService else {
-            errorMessage = "Configure API key and server URL in Settings."
-            return
-        }
-
-        let text = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-
-        isSending = true
-        defer { isSending = false }
-
-        do {
-            let updatedTask = try await service.sendReply(taskID: task.id, text: text)
-            onSent(updatedTask)
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        guard let updatedTask = await store.send(taskID: task.id, using: settings.configuredService) else { return }
+        onSent(updatedTask)
+        dismiss()
     }
 }

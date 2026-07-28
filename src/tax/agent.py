@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -22,6 +23,8 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from tax.logging_utils import configure_logging, log_event
+
 DEFAULT_PORT = 17373
 DEFAULT_POLL_TTL = 24 * 60 * 60  # Kept for CLI compatibility; persistent agents do not expire replies.
 DEFAULT_MAX_WORKERS = 16
@@ -33,6 +36,7 @@ TERMINAL_RETENTION_DAYS = 7
 DELIVERABLE_STATUSES = {"reply_received"}
 TERMINAL_STATUSES = {"delivered", "delivery_failed"}
 SYNC_STATUSES = {"delivered_pending_sync", "delivery_failed_pending_sync"}
+logger = configure_logging("tax-agent")
 
 
 def now_iso() -> str:
@@ -256,7 +260,7 @@ class TaxAgent:
             return
         removed = self.store.cleanup_terminal()
         if removed:
-            print(f"[tax-agent] cleaned {removed} terminal task(s)")
+            log_event(logger, "terminal_tasks_cleaned", removed=removed)
         self._fail_interrupted_deliveries()
         self.import_fallback()
         self._started = True
@@ -300,7 +304,7 @@ class TaxAgent:
         try:
             self._watch_task(task_id)
         except Exception as error:
-            print(f"[tax-agent] watcher failed task_id={task_id}: {error}")
+            log_event(logger, "watcher_failed", level=logging.ERROR, task_id=task_id, error=str(error))
         finally:
             with self._watching_lock:
                 self._watching.discard(task_id)
@@ -328,13 +332,15 @@ class TaxAgent:
             )
             if self._mark_backend_status(task_id, "delivery_failed"):
                 self.store.update(task_id, "delivery_failed", error=str(error))
-            print(f"[tax-agent] delivery failed task_id={task_id} target={target}: {error}")
+            log_event(
+                logger, "delivery_failed", level=logging.ERROR, task_id=task_id, session_id=target, error=str(error)
+            )
             return
 
         self.store.update(task_id, "delivered_pending_sync", error=None)
         if self._mark_backend_status(task_id, "delivered"):
             self.store.update(task_id, "delivered", error=None)
-        print(f"[tax-agent] delivered task_id={task_id} target={target}")
+        log_event(logger, "reply_delivered", task_id=task_id, session_id=target)
 
     def inject_reply(self, reply: str, target: str) -> None:
         executable = shutil.which("agtermctl")
@@ -363,7 +369,14 @@ class TaxAgent:
             return bool(response.json().get("ok"))
         except (requests.RequestException, ValueError) as error:
             # Keep a local pending-sync state so a backend outage can never cause duplicate injection.
-            print(f"[tax-agent] backend status update failed task_id={task_id} status={status}: {error}")
+            log_event(
+                logger,
+                "backend_status_sync_failed",
+                level=logging.WARNING,
+                task_id=task_id,
+                status=status,
+                error=str(error),
+            )
             return False
         finally:
             if response is not None:
@@ -481,14 +494,14 @@ class TaxAgent:
                 if time.monotonic() >= self._next_cleanup_at:
                     removed = self.store.cleanup_terminal()
                     if removed:
-                        print(f"[tax-agent] cleaned {removed} terminal task(s)")
+                        log_event(logger, "terminal_tasks_cleaned", removed=removed)
                     self._next_cleanup_at = time.monotonic() + DEFAULT_CLEANUP_INTERVAL
                 self.poll_backend_replies()
             except (requests.RequestException, ValueError) as error:
-                print(f"[tax-agent] reply poll failed: {error}")
+                log_event(logger, "reply_poll_failed", level=logging.WARNING, error=str(error))
                 delay = self.retry_delay
             except Exception as error:
-                print(f"[tax-agent] reply poll unexpected failure: {error}")
+                log_event(logger, "reply_poll_unexpected_failure", level=logging.ERROR, error=str(error))
                 delay = self.retry_delay
             else:
                 delay = DEFAULT_REPLY_POLL_INTERVAL
@@ -505,7 +518,7 @@ class TaxAgent:
                 queue.seek(self._fallback_offset)
                 data = queue.read()
         except OSError as error:
-            print(f"[tax-agent] fallback read failed: {error}")
+            log_event(logger, "fallback_read_failed", level=logging.WARNING, error=str(error))
             return 0
 
         newline = data.rfind(b"\n")
@@ -523,7 +536,7 @@ class TaxAgent:
                     imported += 1
                     self.watch(task.task_id)
             except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as error:
-                print(f"[tax-agent] ignored invalid fallback entry: {error}")
+                log_event(logger, "fallback_entry_ignored", level=logging.WARNING, error=str(error))
         return imported
 
     def _import_loop(self) -> None:
@@ -532,7 +545,7 @@ class TaxAgent:
             try:
                 self.import_fallback()
             except Exception as error:
-                print(f"[tax-agent] fallback importer failed: {error}")
+                log_event(logger, "fallback_import_failed", level=logging.ERROR, error=str(error))
                 delay = self.retry_delay
             else:
                 delay = DEFAULT_IMPORT_INTERVAL
@@ -571,12 +584,12 @@ def run_agent_server(
     poll_ttl: int = DEFAULT_POLL_TTL,
 ) -> int:
     if not api_key:
-        print("[tax-agent] error: TAX_API_KEY is not configured")
+        log_event(logger, "startup_failed", level=logging.ERROR, reason="api_key_not_configured")
         return 1
     resolved_state_dir = state_dir or default_state_dir()
     instance_lock = AgentInstanceLock(resolved_state_dir / "agent.lock")
     if not instance_lock.acquire():
-        print("[tax-agent] error: tax agent is already running")
+        log_event(logger, "startup_failed", level=logging.ERROR, reason="already_running")
         return 1
 
     agent: Optional[TaxAgent] = None
@@ -594,7 +607,7 @@ def run_agent_server(
         config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
         running_server = uvicorn.Server(config)
         server_holder["server"] = running_server
-        print(f"[tax-agent] listening on http://127.0.0.1:{port}")
+        log_event(logger, "listening", address=f"http://127.0.0.1:{port}")
         running_server.run()
         return 0
     finally:

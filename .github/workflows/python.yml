@@ -1,0 +1,76 @@
+name: Python quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: python-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e '.[dev]'
+      - run: ruff check server src tests
+      - run: pytest -q
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install --upgrade pip build
+      - run: python -m build
+      - name: Install wheel in a clean venv
+        run: |
+          python -m venv /tmp/tax-wheel
+          /tmp/tax-wheel/bin/pip install dist/*.whl
+          /tmp/tax-wheel/bin/tax --help
+          /tmp/tax-wheel/bin/tax agent --help
+
+  repository-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject generated files and secrets in Git
+        run: |
+          if git ls-files | grep -E '(^|/)(\.env$|[^/]+\.p8$|[^/]+\.(db|sqlite|sqlite3)$|__pycache__/|xcuserdata/)|\.pyc$'; then
+            echo 'Generated or sensitive file is tracked' >&2
+            exit 1
+          fi
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e . pip-audit
+      - run: pip-audit

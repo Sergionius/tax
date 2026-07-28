@@ -1,0 +1,12 @@
+# Task status contract
+
+| Status | Meaning | Next status |
+|---|---|---|
+| `pending` | Task is stored, no reply yet | `replied` |
+| `replied` | Backend has a reply waiting for the Mac agent | `delivered`, `delivery_failed` |
+| `delivered` | Reply was inserted into the target agterm session | terminal |
+| `delivery_failed` | Reply could not be inserted and will not be retried automatically | terminal |
+
+The Mac agent also uses local-only synchronization states `delivered_pending_sync` and `delivery_failed_pending_sync`. They mean the agterm result is already known but the backend acknowledgement failed. A reply in either state must never be injected again.
+
+Unknown states must be displayed defensively by clients and must not be treated as deliverable by the Mac agent.

@@ -80,6 +80,13 @@ struct Task: Identifiable, Codable, Sendable, Hashable {
     }
 }
 
+enum TaskStatusKind: Sendable, Equatable {
+    case pending
+    case success
+    case failure
+    case unknown
+}
+
 extension Task {
     var displayCreatedAt: String {
         Self.displayDate(from: createdAt)
@@ -89,13 +96,26 @@ extension Task {
         Self.displayDate(from: updatedAt)
     }
 
-    private static func displayDate(from value: String) -> String {
+    var displayStatus: String {
+        status.isEmpty ? "unknown" : status
+    }
+
+    var statusKind: TaskStatusKind {
+        switch status.lowercased() {
+        case "replied", "done", "completed", "delivered": .success
+        case "failed", "error", "delivery_failed": .failure
+        case "pending", "new": .pending
+        default: .unknown
+        }
+    }
+
+    static func displayDate(from value: String, timeZone: TimeZone = .current) -> String {
         guard !value.isEmpty else { return value }
 
         if let date = parseDate(value) {
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "ru_RU")
-            formatter.timeZone = .current
+            formatter.timeZone = timeZone
             formatter.dateFormat = "HH:mm:ss dd:MM:yyyy"
             return formatter.string(from: date)
         }

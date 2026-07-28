@@ -1,4 +1,6 @@
-# tax iOS App — Plan
+# tax iOS App — Historical implementation plan
+
+> Status (2026-07-28): implemented. The source snippets below are historical and are not the current API. Use [`README.md`](README.md) for build/test instructions, [`QUALITY_AUTOMATION_PLAN.md`](QUALITY_AUTOMATION_PLAN.md) for quality scope, and the code under `tax/tax/` as the source of truth.
 
 Single-file plan for building and connecting the iOS SwiftUI app for `tax`.
 

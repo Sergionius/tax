@@ -3,7 +3,10 @@ import UserNotifications
 
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    var taskService: TaskService?
+    var taskService: (any TaskServing)?
+
+    private let router = PushRouter()
+    private let pendingTasks = PendingTaskStore()
 
     func application(
         _ application: UIApplication,
@@ -12,7 +15,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         configureNotificationCategories(center: center)
-        requestPushAuthorization(application: application)
+        if !AppEnvironment.isUITesting {
+            requestPushAuthorization(application: application)
+        }
         return true
     }
 
@@ -46,16 +51,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let userInfo = response.notification.request.content.userInfo
-        if let taskID = extractTaskID(from: userInfo) {
-            if response.actionIdentifier == "REPLY",
-               let textResponse = response as? UNTextInputNotificationResponse,
-               !textResponse.userText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                sendInlineReply(taskID: taskID, text: textResponse.userText)
-            } else {
-                openTask(taskID)
-            }
-        }
+        let replyText = (response as? UNTextInputNotificationResponse)?.userText
+        let action = router.action(
+            from: response.notification.request.content.userInfo,
+            actionIdentifier: response.actionIdentifier,
+            replyText: replyText
+        )
+        handle(action)
         completionHandler()
     }
 
@@ -72,8 +74,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UIApplication.shared.registerForRemoteNotifications()
     }
 
+    private func handle(_ action: PushRouter.Action) {
+        switch action {
+        case .none:
+            break
+        case let .openTask(taskID):
+            openTask(taskID)
+        case let .reply(taskID, text):
+            sendInlineReply(taskID: taskID, text: text)
+        }
+    }
+
     private func openTask(_ taskID: String) {
-        PendingTaskStore.save(taskID)
+        pendingTasks.save(taskID)
         NotificationCenter.default.post(name: .taxOpenTask, object: taskID)
     }
 
@@ -82,8 +95,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     private func sendInlineReply(taskID: String, text: String) {
-        PendingTaskStore.save(taskID)
-        let service = taskService ?? savedTaskService()
+        pendingTasks.save(taskID)
+        let service = taskService ?? SettingsStore().configuredService
         Swift.Task {
             _ = try? await service?.sendReply(taskID: taskID, text: text)
             await MainActor.run {
@@ -91,11 +104,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 NotificationCenter.default.post(name: .taxRefreshTasks, object: nil)
             }
         }
-    }
-
-    private func savedTaskService() -> TaskService? {
-        let settings = SettingsStore()
-        return settings.configuredService
     }
 
     private func requestPushAuthorization(application: UIApplication) {
@@ -120,12 +128,5 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         )
         let category = UNNotificationCategory(identifier: "TASK", actions: [reply], intentIdentifiers: [], options: [])
         center.setNotificationCategories([category])
-    }
-
-    private func extractTaskID(from userInfo: [AnyHashable: Any]) -> String? {
-        if let taskID = userInfo["task_id"] as? String { return taskID }
-        if let taskID = userInfo["taskId"] as? String { return taskID }
-        if let aps = userInfo["aps"] as? [String: Any], let taskID = aps["task_id"] as? String { return taskID }
-        return nil
     }
 }

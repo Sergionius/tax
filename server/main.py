@@ -1,17 +1,25 @@
 import asyncio
 import json
+import logging
 import os
 import sqlite3
 import time
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-import httpx
-import jwt
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
+
+try:
+    from server import apns, storage
+    from server.logging_config import configure_logging, log_event
+except ModuleNotFoundError:  # Standalone deployment runs with server/ as the working directory.
+    import apns
+    import storage
+    from logging_config import configure_logging, log_event
 
 DB_PATH = os.environ.get("TAX_DB_PATH", "/data/tax.db")
 API_KEY = os.environ.get("TAX_API_KEY", "")
@@ -23,74 +31,24 @@ APNS_KEY_PATH = os.environ.get("TAX_APNS_KEY_PATH", "")
 APNS_USE_SANDBOX = os.environ.get("TAX_APNS_USE_SANDBOX", "").lower() in ("1", "true", "yes")
 
 security = HTTPBearer()
+logger = configure_logging("tax-server")
 
 
 def require_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
     if not API_KEY or token != API_KEY:
-        print(f"[tax-server] auth failed: token length={len(token)}, expected length={len(API_KEY)}")
+        log_event(logger, "auth_failed", level=logging.WARNING, token_length=len(token), configured=bool(API_KEY))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    print("[tax-server] auth ok")
+    log_event(logger, "auth_ok", level=logging.DEBUG)
     return token
 
 
-def _add_missing_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
-    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
-    for name, sql_type in columns.items():
-        if name not in existing:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
-
-
 def init_db():
-    db_dir = os.path.dirname(DB_PATH)
-    if db_dir:
-        os.makedirs(db_dir, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS tasks (
-                id TEXT PRIMARY KEY,
-                device_token TEXT NOT NULL,
-                title TEXT,
-                body TEXT,
-                status TEXT DEFAULT 'pending',
-                context TEXT,
-                logs TEXT,
-                reply TEXT,
-                source TEXT,
-                agent TEXT,
-                app TEXT,
-                agterm_session_id TEXT,
-                created_at TEXT,
-                updated_at TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS device_tokens (
-                token TEXT PRIMARY KEY,
-                preferences TEXT,
-                created_at TEXT,
-                updated_at TEXT
-            )
-        """)
-        _add_missing_columns(
-            conn,
-            "tasks",
-            {
-                "source": "TEXT",
-                "agent": "TEXT",
-                "app": "TEXT",
-                "agterm_session_id": "TEXT",
-            },
-        )
-        _add_missing_columns(conn, "device_tokens", {"preferences": "TEXT"})
-        conn.commit()
-    finally:
-        conn.close()
+    storage.initialize(DB_PATH)
 
 
 @asynccontextmanager
@@ -102,12 +60,42 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="tax — Task Agent eXchange", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def request_logging(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    started = time.monotonic()
+    try:
+        response = await call_next(request)
+    except Exception:
+        log_event(
+            logger,
+            "request_failed",
+            level=logging.ERROR,
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            duration_ms=round((time.monotonic() - started) * 1000),
+        )
+        raise
+    response.headers["x-request-id"] = request_id
+    log_event(
+        logger,
+        "request_completed",
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_ms=round((time.monotonic() - started) * 1000),
+    )
+    return response
+
+
 class PushPayload(BaseModel):
-    device_token: Optional[str] = None
-    title: str
-    body: str
-    context: Optional[str] = ""
-    logs: Optional[str] = ""
+    device_token: Optional[str] = Field(default=None, max_length=512)
+    title: str = Field(min_length=1, max_length=256)
+    body: str = Field(min_length=1, max_length=4096)
+    context: Optional[str] = Field(default="", max_length=100_000)
+    logs: Optional[str] = Field(default="", max_length=500_000)
     source: Optional[str] = ""
     agent: Optional[str] = ""
     app: Optional[str] = ""
@@ -115,13 +103,13 @@ class PushPayload(BaseModel):
 
 
 class TaskUpdate(BaseModel):
-    status: Optional[str] = None
-    context: Optional[str] = None
-    logs: Optional[str] = None
+    status: Optional[Literal["pending", "replied", "delivered", "delivery_failed"]] = None
+    context: Optional[str] = Field(default=None, max_length=100_000)
+    logs: Optional[str] = Field(default=None, max_length=500_000)
 
 
 class ReplyPayload(BaseModel):
-    text: str
+    text: str = Field(min_length=1, max_length=20_000)
 
 
 class DevicePreferences(BaseModel):
@@ -129,14 +117,12 @@ class DevicePreferences(BaseModel):
 
 
 class DeviceTokenPayload(BaseModel):
-    device_token: str
+    device_token: str = Field(min_length=1, max_length=512)
     preferences: DevicePreferences = Field(default_factory=DevicePreferences)
 
 
 def db_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return storage.connect(DB_PATH)
 
 
 def now_iso() -> str:
@@ -156,53 +142,14 @@ async def send_apns(
     source: str = "",
     agent: str = "",
 ):
-    print(f"[tax-server] send_apns task_id={task_id} token_set={bool(device_token)} key_path={APNS_KEY_PATH}")
-    if not device_token or not APNS_KEY_PATH or not os.path.exists(APNS_KEY_PATH):
-        print("[tax-server] APNS key not configured or device token empty; push not sent")
-        return
-
-    with open(APNS_KEY_PATH) as f:
-        key = f.read()
-
-    token_time = int(time.time())
-    auth_token = jwt.encode(
-        {"iss": APNS_TEAM_ID, "iat": token_time, "exp": token_time + 3600},
-        key,
-        algorithm="ES256",
-        headers={"kid": APNS_KEY_ID},
+    config = apns.APNSConfig(
+        key_id=APNS_KEY_ID,
+        team_id=APNS_TEAM_ID,
+        bundle_id=APNS_BUNDLE_ID,
+        key_path=APNS_KEY_PATH,
+        use_sandbox=APNS_USE_SANDBOX,
     )
-
-    host = "api.development.push.apple.com" if APNS_USE_SANDBOX else "api.push.apple.com"
-    url = f"https://{host}/3/device/{device_token}"
-
-    payload = {
-        "aps": {
-            "alert": {"title": title, "body": body},
-            "sound": "default",
-            "badge": 1,
-            "category": "TASK",
-        },
-        "task_id": task_id,
-        "app": app_name,
-        "source": source,
-        "agent": agent,
-    }
-
-    async with httpx.AsyncClient(http2=True) as client:
-        try:
-            r = await client.post(
-                url,
-                json=payload,
-                headers={
-                    "apns-topic": APNS_BUNDLE_ID,
-                    "authorization": f"bearer {auth_token}",
-                    "apns-priority": "10",
-                    "apns-push-type": "alert",
-                },
-            )
-            print(f"[tax-server] APNs status={r.status_code} body={r.text}")
-        except Exception as e:
-            print(f"[tax-server] APNs error: {e}")
+    await apns.send(config, logger, device_token, title, body, task_id, app_name, source, agent)
 
 
 def device_registration(token: Optional[str] = None) -> Optional[sqlite3.Row]:
@@ -243,10 +190,16 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     mode = push_mode_for(registration)
     send_push, skip_reason = should_send_push(mode, payload.app or "")
 
-    print(
-        f"[tax-server] /push task_id={task_id} device_token={'set' if device_token else 'empty'} "
-        f"title={payload.title} source={payload.source} agent={payload.agent} app={payload.app} "
-        f"agterm_session_id={payload.agterm_session_id} push_mode={mode}"
+    log_event(
+        logger,
+        "task_created",
+        task_id=task_id,
+        token_configured=bool(device_token),
+        source=payload.source,
+        agent=payload.agent,
+        app=payload.app,
+        session_id=payload.agterm_session_id,
+        push_mode=mode,
     )
 
     conn = db_conn()
@@ -287,10 +240,10 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
             payload.source or "",
             payload.agent or "",
         )
-        print(f"[tax-server] /push task_id={task_id} APNs enqueued")
+        log_event(logger, "apns_enqueued", task_id=task_id)
     else:
         skip_reason = skip_reason or "device_token_missing"
-        print(f"[tax-server] /push task_id={task_id} APNs skipped reason={skip_reason}")
+        log_event(logger, "apns_skipped", task_id=task_id, reason=skip_reason)
 
     return {
         "ok": True,
@@ -318,7 +271,8 @@ async def update_task(task_id: str, update: TaskUpdate):
         values.append(update.logs)
 
     if not fields:
-        return {"ok": False, "error": "no fields to update"}
+        conn.close()
+        raise HTTPException(status_code=400, detail="no fields to update")
 
     values.append(now_iso())
     values.append(task_id)
@@ -329,7 +283,7 @@ async def update_task(task_id: str, update: TaskUpdate):
     conn.close()
 
     if not row:
-        return {"ok": False, "error": "not found"}
+        raise HTTPException(status_code=404, detail="task not found")
 
     return {"ok": True, "task": row_to_dict(row)}
 
@@ -340,27 +294,30 @@ async def get_task(task_id: str):
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     conn.close()
     if not row:
-        return {"ok": False, "error": "not found"}
+        raise HTTPException(status_code=404, detail="task not found")
     return {"ok": True, "task": row_to_dict(row)}
 
 
 @app.post("/task/{task_id}/reply", dependencies=[Depends(require_api_key)])
 async def reply(task_id: str, payload: ReplyPayload):
-    print(f"[tax-server] /task/{task_id}/reply received text length={len(payload.text)}")
+    log_event(logger, "reply_received", task_id=task_id, reply_length=len(payload.text))
     conn = db_conn()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE tasks SET reply = ?, status = 'replied', updated_at = ? WHERE id = ?",
+        "UPDATE tasks SET reply = ?, status = 'replied', updated_at = ? WHERE id = ? AND reply IS NULL",
         (payload.text, now_iso(), task_id),
     )
+    updated = cur.rowcount
     conn.commit()
     row = cur.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     conn.close()
 
     if not row:
-        return {"ok": False, "error": "not found"}
+        raise HTTPException(status_code=404, detail="task not found")
+    if not updated:
+        raise HTTPException(status_code=409, detail="reply already submitted")
 
-    print(f"[tax-server] /task/{task_id}/reply saved")
+    log_event(logger, "reply_saved", task_id=task_id)
     return {"ok": True, "task": row_to_dict(row)}
 
 
@@ -369,7 +326,7 @@ async def get_reply(task_id: str, wait: bool = False):
     timeout = 30 if wait else 0
     deadline = time.time() + timeout
 
-    print(f"[tax-server] /task/{task_id}/reply poll wait={wait} timeout={timeout}")
+    log_event(logger, "reply_poll_started", level=logging.DEBUG, task_id=task_id, wait=wait, timeout=timeout)
 
     while True:
         conn = db_conn()
@@ -377,19 +334,19 @@ async def get_reply(task_id: str, wait: bool = False):
         conn.close()
 
         if row and row["reply"]:
-            print(f"[tax-server] /task/{task_id}/reply found reply length={len(row['reply'])}")
+            log_event(logger, "reply_poll_found", task_id=task_id, reply_length=len(row["reply"]))
             return {"ok": True, "reply": row["reply"]}
 
         if time.time() >= deadline:
             break
         await asyncio.sleep(1)
 
-    print(f"[tax-server] /task/{task_id}/reply no reply within timeout")
+    log_event(logger, "reply_poll_empty", level=logging.DEBUG, task_id=task_id)
     return {"ok": False, "reply": None}
 
 
 @app.get("/replies", dependencies=[Depends(require_api_key)])
-async def list_pending_replies(limit: int = 500):
+async def list_pending_replies(limit: int = Query(default=500, ge=1, le=500)):
     conn = db_conn()
     rows = conn.execute(
         "SELECT id, reply, agterm_session_id, source, agent, app, updated_at "
@@ -402,7 +359,9 @@ async def list_pending_replies(limit: int = 500):
 
 
 @app.get("/tasks", dependencies=[Depends(require_api_key)])
-async def list_tasks(limit: int = 50, offset: int = 0):
+async def list_tasks(
+    limit: int = Query(default=50, ge=1, le=500), offset: int = Query(default=0, ge=0)
+):
     conn = db_conn()
     rows = conn.execute(
         "SELECT * FROM tasks ORDER BY updated_at DESC LIMIT ? OFFSET ?",
@@ -414,7 +373,17 @@ async def list_tasks(limit: int = 50, offset: int = 0):
 
 @app.get("/health", dependencies=[Depends(require_api_key)])
 async def health():
-    return {"ok": True}
+    conn = None
+    try:
+        conn = db_conn()
+        conn.execute("SELECT 1").fetchone()
+    except sqlite3.Error as error:
+        log_event(logger, "health_failed", level=logging.ERROR, error=str(error))
+        raise HTTPException(status_code=503, detail="database unavailable") from error
+    finally:
+        if conn is not None:
+            conn.close()
+    return {"ok": True, "database": "ok"}
 
 
 @app.post("/register-device", dependencies=[Depends(require_api_key)])
@@ -435,7 +404,7 @@ async def register_device(payload: DeviceTokenPayload):
         conn.commit()
     finally:
         conn.close()
-    print(f"[tax-server] registered device token_set=true push_mode={payload.preferences.push_mode}")
+    log_event(logger, "device_registered", push_mode=payload.preferences.push_mode)
     return {"ok": True, "preferences": payload.preferences.model_dump()}
 
 

@@ -5,15 +5,12 @@ struct TaskDetailView: View {
     @Environment(AppState.self) private var appState
     let taskID: String
 
-    @State private var task: Task?
-    @State private var errorMessage: String?
-    @State private var isLoading = false
-    @State private var isRefreshing = false
+    @State private var store = TaskDetailStore()
     @State private var showsReply = false
 
     var body: some View {
         Group {
-            if let task {
+            if let task = store.task {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         header(task)
@@ -24,7 +21,7 @@ struct TaskDetailView: View {
                     }
                     .padding()
                 }
-            } else if isLoading {
+            } else if store.isLoading {
                 ProgressView("Loading task…")
             } else {
                 ContentUnavailableView("Task Not Loaded", systemImage: "doc.text.magnifyingglass")
@@ -35,35 +32,37 @@ struct TaskDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Reply") { showsReply = true }
-                    .disabled(task == nil)
+                    .disabled(store.task == nil)
+                    .accessibilityIdentifier("task.reply")
             }
         }
         .task { await load() }
         .refreshable { await load(showOverlay: false) }
         .onChange(of: appState.refreshToken) { _, _ in
-            Swift.Task { await load(showOverlay: task == nil) }
+            Swift.Task { await load(showOverlay: store.task == nil) }
         }
         .sheet(isPresented: $showsReply) {
-            if let task {
+            if let task = store.task {
                 NavigationStack {
                     ReplyView(task: task) { updatedTask in
-                        self.task = updatedTask
+                        store.apply(updatedTask)
                         appState.requestRefresh()
                     }
                 }
             }
         }
         .alert("Error", isPresented: errorBinding) {
-            Button("OK") { errorMessage = nil }
+            Button("Retry") { Swift.Task { await load() } }
+            Button("OK", role: .cancel) { store.dismissError() }
         } message: {
-            Text(errorMessage ?? "")
+            Text(store.errorMessage ?? "")
         }
     }
 
     private var errorBinding: Binding<Bool> {
         Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
+            get: { store.errorMessage != nil },
+            set: { if !$0 { store.dismissError() } }
         )
     }
 
@@ -71,7 +70,7 @@ struct TaskDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(task.title)
                 .font(.title2.bold())
-            LabeledContent("Status", value: task.status)
+            LabeledContent("Status", value: task.displayStatus)
             if !task.createdAt.isEmpty { LabeledContent("Created", value: task.displayCreatedAt) }
             if !task.updatedAt.isEmpty { LabeledContent("Updated", value: task.displayUpdatedAt) }
             Text(task.id)
@@ -83,29 +82,7 @@ struct TaskDetailView: View {
     }
 
     private func load(showOverlay: Bool = true) async {
-        guard !isLoading, !isRefreshing else { return }
-
-        guard let service = settings.configuredService else {
-            errorMessage = "Configure API key and server URL in Settings."
-            return
-        }
-
-        if showOverlay {
-            isLoading = true
-        } else {
-            isRefreshing = true
-        }
-        defer {
-            isLoading = false
-            isRefreshing = false
-        }
-
-        do {
-            task = try await service.fetchTask(id: taskID)
-        } catch is CancellationError {
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await store.load(taskID: taskID, using: settings.configuredService, showOverlay: showOverlay)
     }
 }
 

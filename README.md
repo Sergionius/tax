@@ -135,6 +135,14 @@ python -m pytest
 ruff check server src tests
 ```
 
+Полная проверка перед тестовым релизом (тесты, wheel smoke-test и iOS build при наличии Xcode):
+
+```bash
+./scripts/preflight.sh
+```
+
+Эксплуатационные инструкции: [`docs/OPERATIONS.md`](docs/OPERATIONS.md). Чек-лист релиза: [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md). Статусы задач: [`docs/STATUS_MODEL.md`](docs/STATUS_MODEL.md).
+
 ## iOS приложение
 
 См. `ios/README.md`.

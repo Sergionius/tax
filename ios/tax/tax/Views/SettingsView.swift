@@ -4,6 +4,7 @@ import UserNotifications
 
 struct SettingsView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(AppState.self) private var appState
     @State private var statusMessage: String?
     @State private var isCheckingHealth = false
     @State private var isRegistering = false
@@ -17,6 +18,7 @@ struct SettingsView: View {
             Section("Server") {
                 TextField("Server URL", text: $settings.serverURL)
                     .textInputAutocapitalization(.never)
+                    .accessibilityIdentifier("settings.serverURL")
                     .keyboardType(.URL)
                     .autocorrectionDisabled()
             }
@@ -31,6 +33,7 @@ struct SettingsView: View {
                     } else {
                         SecureField("API Key", text: $settings.apiKey)
                             .textInputAutocapitalization(.never)
+                            .accessibilityIdentifier("settings.apiKey")
                             .autocorrectionDisabled()
                     }
 
@@ -113,10 +116,14 @@ struct SettingsView: View {
                 Button("Save Settings") {
                     settings.save()
                     statusMessage = settings.lastSaveError ?? "Settings saved."
+                    if settings.lastSaveError == nil {
+                        appState.requestRefresh()
+                    }
                     if !settings.deviceToken.isEmpty {
                         registerSavedDeviceToken()
                     }
                 }
+                .accessibilityIdentifier("settings.save")
 
                 Button(isCheckingHealth ? "Checking…" : "Check Server Health") {
                     Swift.Task { await checkHealth() }

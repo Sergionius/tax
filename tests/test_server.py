@@ -1,3 +1,4 @@
+import asyncio
 import json
 import sqlite3
 from pathlib import Path
@@ -150,3 +151,83 @@ def test_rejects_unknown_push_mode(monkeypatch, tmp_path):
             json={"device_token": "token", "preferences": {"push_mode": "unknown"}},
         )
     assert response.status_code == 422
+
+
+def test_auth_and_query_validation(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        assert client.get("/tasks").status_code in {401, 403}
+        assert client.get("/tasks", headers={"Authorization": "Bearer wrong"}).status_code == 401
+        assert client.get("/tasks?limit=0", headers=AUTH).status_code == 422
+        assert client.get("/tasks?limit=501", headers=AUTH).status_code == 422
+        assert client.get("/tasks?offset=-1", headers=AUTH).status_code == 422
+
+
+def test_unknown_tasks_and_reply_validation(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        assert client.get("/task/missing", headers=AUTH).status_code == 404
+        assert client.post("/task/missing/update", headers=AUTH, json={"status": "delivered"}).status_code == 404
+        assert client.post("/task/missing/reply", headers=AUTH, json={"text": "continue"}).status_code == 404
+        assert client.post("/task/missing/reply", headers=AUTH, json={"text": ""}).status_code == 422
+        assert client.post("/task/missing/reply", headers=AUTH, json={"text": "x" * 20_001}).status_code == 422
+
+
+def test_reply_is_first_writer_wins(monkeypatch, tmp_path):
+    async def fake_send(*_args):
+        return None
+
+    monkeypatch.setattr(main, "send_apns", fake_send)
+    with make_client(monkeypatch, tmp_path) as client:
+        task_id = push(client, "").json()["task_id"]
+        first = client.post(f"/task/{task_id}/reply", headers=AUTH, json={"text": "first"})
+        second = client.post(f"/task/{task_id}/reply", headers=AUTH, json={"text": "second"})
+        task = client.get(f"/task/{task_id}", headers=AUTH).json()["task"]
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert task["reply"] == "first"
+
+
+def test_health_checks_database(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        assert client.get("/health", headers=AUTH).json() == {"ok": True, "database": "ok"}
+
+
+def test_apns_uses_sandbox_host_and_reports_reason(monkeypatch, tmp_path, caplog):
+    key_path = tmp_path / "AuthKey.p8"
+    key_path.write_text("fake-key")
+    monkeypatch.setattr(main, "APNS_KEY_PATH", str(key_path))
+    monkeypatch.setattr(main, "APNS_KEY_ID", "key-id")
+    monkeypatch.setattr(main, "APNS_TEAM_ID", "team-id")
+    monkeypatch.setattr(main, "APNS_BUNDLE_ID", "bundle-id")
+    monkeypatch.setattr(main, "APNS_USE_SANDBOX", True)
+    monkeypatch.setattr(main.apns.jwt, "encode", lambda *_args, **_kwargs: "provider-token")
+    calls = []
+
+    class Response:
+        status_code = 410
+        headers = {"apns-id": "apns-request-id"}
+
+        @staticmethod
+        def json():
+            return {"reason": "Unregistered"}
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, **kwargs):
+            calls.append((url, kwargs))
+            return Response()
+
+    monkeypatch.setattr(main.apns.httpx, "AsyncClient", lambda **_kwargs: Client())
+    with caplog.at_level("WARNING"):
+        asyncio.run(main.send_apns("device-secret", "title", "body", "task-1"))
+
+    assert calls[0][0] == "https://api.development.push.apple.com/3/device/device-secret"
+    assert calls[0][1]["headers"]["apns-topic"] == "bundle-id"
+    assert "Unregistered" in caplog.text
+    assert "device-secret" not in caplog.text
+    assert "provider-token" not in caplog.text

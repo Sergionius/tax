@@ -1,6 +1,8 @@
-# iOS App Review + Fixes + APNs Setup
+# iOS App Review + APNs Setup (historical)
 
-Single file with required code fixes and APNs certificate instructions.
+> Status (2026-07-28): the listed code fixes are implemented, including `TaxApp`, service caching/invalidation, secure API-key storage, testable dependencies, and removal of the obsolete `fetch` background mode. Use [`README.md`](README.md) and [`APNS_SMOKE_CHECKLIST.md`](APNS_SMOKE_CHECKLIST.md) for current procedures. The credential setup below remains reference material; never commit `.p8` files.
+
+Single file with original review notes and APNs certificate instructions.
 
 ## Required code fixes
 

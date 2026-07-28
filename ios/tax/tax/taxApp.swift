@@ -1,10 +1,11 @@
 import SwiftUI
 
 @main
-struct taxApp: App {
+struct TaxApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var settingsStore = SettingsStore()
+    @State private var settingsStore = AppEnvironment.makeSettingsStore()
     @State private var appState = AppState()
+    private let pendingTasks = PendingTaskStore()
 
     var body: some Scene {
         WindowGroup {
@@ -14,6 +15,7 @@ struct taxApp: App {
                 .onAppear {
                     configureDelegateService()
                     consumePendingTaskIfNeeded()
+                    consumeMockTaskIfNeeded()
                 }
                 .onChange(of: settingsStore.apiKey) { _, _ in configureDelegateService() }
                 .onChange(of: settingsStore.serverURL) { _, _ in configureDelegateService() }
@@ -25,6 +27,7 @@ struct taxApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: .taxOpenTask)) { notification in
                     if let taskID = notification.object as? String {
                         appState.openTask(id: taskID)
+                        _ = pendingTasks.consume()
                     }
                     appState.requestRefresh()
                 }
@@ -39,9 +42,14 @@ struct taxApp: App {
     }
 
     private func consumePendingTaskIfNeeded() {
-        if let taskID = PendingTaskStore.consume() {
+        if let taskID = pendingTasks.consume() {
             appState.openTask(id: taskID)
             appState.requestRefresh()
         }
+    }
+
+    private func consumeMockTaskIfNeeded() {
+        guard let taskID = AppEnvironment.mockTaskID else { return }
+        appState.openTask(id: taskID)
     }
 }
