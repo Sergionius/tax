@@ -72,5 +72,6 @@ jobs:
           python-version: '3.11'
           cache: pip
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e . pip-audit
+      - run: python -m pip install --upgrade 'setuptools>=83' pip-audit
+      - run: python -m pip install -e .
       - run: pip-audit

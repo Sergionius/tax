@@ -41,6 +41,11 @@ packages = ["src/tax"]
 [tool.ruff]
 line-length = 120
 
+[tool.ruff.lint]
+# Keep the CI lint contract explicit so new Ruff releases cannot enable new
+# rule families and break an otherwise unchanged commit.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.pytest.ini_options]
 pythonpath = [".", "src"]
 testpaths = ["tests"]
