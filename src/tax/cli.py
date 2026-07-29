@@ -265,8 +265,8 @@ def main() -> int:
     p_agent.add_argument(
         "--poll-ttl",
         type=int,
-        default=86400,
-        help="Deprecated compatibility option; persistent reply polling has no TTL",
+        default=1800,
+        help="Expire unanswered tasks after this many seconds (default: 1800)",
     )
     p_agent.set_defaults(func=cmd_agent)
 

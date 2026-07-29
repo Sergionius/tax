@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from tax.logging_utils import configure_logging, log_event
 
 DEFAULT_PORT = 17373
-DEFAULT_POLL_TTL = 24 * 60 * 60  # Kept for CLI compatibility; persistent agents do not expire replies.
+DEFAULT_POLL_TTL = 30 * 60
 DEFAULT_MAX_WORKERS = 16
 DEFAULT_IMPORT_INTERVAL = 5.0
 DEFAULT_REPLY_POLL_INTERVAL = 5.0
@@ -34,7 +34,7 @@ DEFAULT_CLEANUP_INTERVAL = 24 * 60 * 60
 LEGACY_POLL_BATCH_SIZE = 20
 TERMINAL_RETENTION_DAYS = 7
 DELIVERABLE_STATUSES = {"reply_received"}
-TERMINAL_STATUSES = {"delivered", "delivery_failed"}
+TERMINAL_STATUSES = {"delivered", "delivery_failed", "expired"}
 SYNC_STATUSES = {"delivered_pending_sync", "delivery_failed_pending_sync"}
 logger = configure_logging("tax-agent")
 
@@ -127,11 +127,22 @@ class AgentStore:
                 tuple(sorted(statuses)),
             ).fetchall()
 
+    def expire_stale(self, ttl_seconds: int) -> int:
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)).isoformat()
+        with closing(self.connect()) as conn, conn:
+            cursor = conn.execute(
+                "UPDATE watched_tasks SET status = 'expired', updated_at = ?, last_error = NULL "
+                "WHERE status IN ('pending', 'waiting_reply') AND created_at < ?",
+                (now_iso(), cutoff),
+            )
+            return cursor.rowcount
+
     def cleanup_terminal(self, retention_days: int = TERMINAL_RETENTION_DAYS) -> int:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
         with closing(self.connect()) as conn, conn:
             cursor = conn.execute(
-                "DELETE FROM watched_tasks WHERE status IN ('delivered', 'delivery_failed') AND updated_at < ?",
+                "DELETE FROM watched_tasks "
+                "WHERE status IN ('delivered', 'delivery_failed', 'expired') AND updated_at < ?",
                 (cutoff,),
             )
             return cursor.rowcount
@@ -154,7 +165,7 @@ class AgentStore:
                     last_error = NULL,
                     updated_at = excluded.updated_at
                 WHERE watched_tasks.status NOT IN
-                    ('delivering', 'delivered', 'delivery_failed',
+                    ('delivering', 'delivered', 'delivery_failed', 'expired',
                      'delivered_pending_sync', 'delivery_failed_pending_sync')
                 """,
                 (
@@ -244,7 +255,6 @@ class TaxAgent:
         self._reply_poller: Optional[threading.Thread] = None
         self._fallback_offset = 0
         self._next_cleanup_at = time.monotonic() + DEFAULT_CLEANUP_INTERVAL
-        self._replies_endpoint_available: Optional[bool] = None
         self._legacy_poll_offset = 0
         self._started = False
         self._stopped = False
@@ -319,7 +329,14 @@ class TaxAgent:
         row = self.store.get(task_id)
         if not row or self.stop_event.is_set():
             return
-        target = row["agterm_session_id"] or "active"
+        target = row["agterm_session_id"]
+        if not target:
+            error = "agterm session id is missing"
+            self.store.update(task_id, "delivery_failed_pending_sync", error=error, increment_attempts=True)
+            if self._mark_backend_status(task_id, "delivery_failed"):
+                self.store.update(task_id, "delivery_failed", error=error)
+            log_event(logger, "delivery_failed", level=logging.ERROR, task_id=task_id, error=error)
+            return
         try:
             self.store.update(task_id, "delivering", error=None)
             self.inject_reply(reply, target)
@@ -393,9 +410,24 @@ class TaxAgent:
 
     def _sync_local_terminal_status(self, row: sqlite3.Row) -> None:
         status = row["status"]
-        backend_status = "delivered" if status in {"delivered", "delivered_pending_sync"} else "delivery_failed"
+        if status == "expired":
+            backend_status = "expired"
+        else:
+            backend_status = "delivered" if status in {"delivered", "delivered_pending_sync"} else "delivery_failed"
         if self._mark_backend_status(row["task_id"], backend_status):
             self.store.update(row["task_id"], backend_status, error=row["last_error"])
+
+    def _backend_reply_is_stale(self, item: dict[object, object]) -> bool:
+        updated_at = item.get("updated_at")
+        if not isinstance(updated_at, str) or not updated_at:
+            return False
+        try:
+            timestamp = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        return timestamp < datetime.now(timezone.utc) - timedelta(seconds=self.poll_ttl)
 
     def _schedule_backend_tasks(self, tasks: list[object]) -> int:
         scheduled = 0
@@ -422,13 +454,19 @@ class TaxAgent:
                 agent=str(item.get("agent") or ""),
                 app=str(item.get("app") or ""),
             )
+            if self._backend_reply_is_stale(item):
+                self.store.record_reply(task, reply)
+                self.store.update(task_id, "expired")
+                self._sync_local_terminal_status(self.store.get(task_id))
+                log_event(logger, "stale_reply_expired", task_id=task_id, ttl_seconds=self.poll_ttl)
+                continue
             if self.store.record_reply(task, reply) == "reply_received":
                 self.watch(task_id)
                 scheduled += 1
         return scheduled
 
     def _poll_legacy_replies(self) -> int:
-        rows = self.store.list_by_status({"pending", "waiting_reply", "expired"})
+        rows = self.store.list_by_status({"pending", "waiting_reply"})
         if not rows:
             self._legacy_poll_offset = 0
             return 0
@@ -467,21 +505,16 @@ class TaxAgent:
         return self._schedule_backend_tasks(tasks)
 
     def poll_backend_replies(self) -> int:
-        if self._replies_endpoint_available is False:
-            return self._poll_legacy_replies()
-
         response = None
         try:
             response = requests.get(f"{self.server}/replies", headers=self.headers, timeout=15)
             if response.status_code == 404:
-                self._replies_endpoint_available = False
                 return self._poll_legacy_replies()
             response.raise_for_status()
             payload = response.json()
             tasks = payload.get("tasks", [])
             if not isinstance(tasks, list):
                 raise ValueError("backend replies payload has no task list")
-            self._replies_endpoint_available = True
             return self._schedule_backend_tasks(tasks)
         finally:
             if response is not None:
@@ -496,6 +529,9 @@ class TaxAgent:
                     if removed:
                         log_event(logger, "terminal_tasks_cleaned", removed=removed)
                     self._next_cleanup_at = time.monotonic() + DEFAULT_CLEANUP_INTERVAL
+                expired = self.store.expire_stale(self.poll_ttl)
+                if expired:
+                    log_event(logger, "pending_tasks_expired", count=expired, ttl_seconds=self.poll_ttl)
                 self.poll_backend_replies()
             except (requests.RequestException, ValueError) as error:
                 log_event(logger, "reply_poll_failed", level=logging.WARNING, error=str(error))

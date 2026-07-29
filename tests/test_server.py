@@ -171,6 +171,46 @@ def test_unknown_tasks_and_reply_validation(monkeypatch, tmp_path):
         assert client.post("/task/missing/reply", headers=AUTH, json={"text": "x" * 20_001}).status_code == 422
 
 
+def test_reply_is_rejected_after_task_expires(monkeypatch, tmp_path):
+    async def fake_send(*_args):
+        return None
+
+    monkeypatch.setattr(main, "send_apns", fake_send)
+    with make_client(monkeypatch, tmp_path) as client:
+        task_id = push(client, "").json()["task_id"]
+        conn = main.db_conn()
+        conn.execute("UPDATE tasks SET created_at = ? WHERE id = ?", ("2000-01-01T00:00:00+00:00", task_id))
+        conn.commit()
+        conn.close()
+
+        response = client.post(f"/task/{task_id}/reply", headers=AUTH, json={"text": "too late"})
+        task = client.get(f"/task/{task_id}", headers=AUTH).json()["task"]
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "task expired"
+    assert task["status"] == "expired"
+    assert task["reply"] is None
+
+
+def test_undelivered_reply_expires_after_ttl(monkeypatch, tmp_path):
+    async def fake_send(*_args):
+        return None
+
+    monkeypatch.setattr(main, "send_apns", fake_send)
+    with make_client(monkeypatch, tmp_path) as client:
+        task_id = push(client, "").json()["task_id"]
+        assert client.post(f"/task/{task_id}/reply", headers=AUTH, json={"text": "continue"}).status_code == 200
+        conn = main.db_conn()
+        conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", ("2000-01-01T00:00:00+00:00", task_id))
+        conn.commit()
+        conn.close()
+
+        assert client.get("/replies", headers=AUTH).json()["tasks"] == []
+        task = client.get(f"/task/{task_id}", headers=AUTH).json()["task"]
+
+    assert task["status"] == "expired"
+
+
 def test_reply_is_first_writer_wins(monkeypatch, tmp_path):
     async def fake_send(*_args):
         return None

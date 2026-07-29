@@ -6,7 +6,7 @@ import sqlite3
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, status
@@ -23,6 +23,7 @@ except ModuleNotFoundError:  # Standalone deployment runs with server/ as the wo
 
 DB_PATH = os.environ.get("TAX_DB_PATH", "/data/tax.db")
 API_KEY = os.environ.get("TAX_API_KEY", "")
+TASK_REPLY_TTL_SECONDS = 30 * 60
 
 APNS_KEY_ID = os.environ.get("TAX_APNS_KEY_ID", "")
 APNS_TEAM_ID = os.environ.get("TAX_APNS_TEAM_ID", "")
@@ -103,7 +104,7 @@ class PushPayload(BaseModel):
 
 
 class TaskUpdate(BaseModel):
-    status: Optional[Literal["pending", "replied", "delivered", "delivery_failed"]] = None
+    status: Optional[Literal["pending", "replied", "delivered", "delivery_failed", "expired"]] = None
     context: Optional[str] = Field(default=None, max_length=100_000)
     logs: Optional[str] = Field(default=None, max_length=500_000)
 
@@ -123,6 +124,17 @@ class DeviceTokenPayload(BaseModel):
 
 def db_conn():
     return storage.connect(DB_PATH)
+
+
+def expire_stale_tasks(conn: sqlite3.Connection) -> int:
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=TASK_REPLY_TTL_SECONDS)).isoformat()
+    cursor = conn.execute(
+        "UPDATE tasks SET status = 'expired', updated_at = ? "
+        "WHERE (status = 'pending' AND created_at < ?) OR (status = 'replied' AND updated_at < ?)",
+        (now_iso(), cutoff, cutoff),
+    )
+    conn.commit()
+    return cursor.rowcount
 
 
 def now_iso() -> str:
@@ -291,6 +303,7 @@ async def update_task(task_id: str, update: TaskUpdate):
 @app.get("/task/{task_id}", dependencies=[Depends(require_api_key)])
 async def get_task(task_id: str):
     conn = db_conn()
+    expire_stale_tasks(conn)
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     conn.close()
     if not row:
@@ -302,9 +315,11 @@ async def get_task(task_id: str):
 async def reply(task_id: str, payload: ReplyPayload):
     log_event(logger, "reply_received", task_id=task_id, reply_length=len(payload.text))
     conn = db_conn()
+    expire_stale_tasks(conn)
     cur = conn.cursor()
     cur.execute(
-        "UPDATE tasks SET reply = ?, status = 'replied', updated_at = ? WHERE id = ? AND reply IS NULL",
+        "UPDATE tasks SET reply = ?, status = 'replied', updated_at = ? "
+        "WHERE id = ? AND reply IS NULL AND status = 'pending'",
         (payload.text, now_iso(), task_id),
     )
     updated = cur.rowcount
@@ -315,7 +330,8 @@ async def reply(task_id: str, payload: ReplyPayload):
     if not row:
         raise HTTPException(status_code=404, detail="task not found")
     if not updated:
-        raise HTTPException(status_code=409, detail="reply already submitted")
+        detail = "task expired" if row["status"] == "expired" else "reply already submitted"
+        raise HTTPException(status_code=409, detail=detail)
 
     log_event(logger, "reply_saved", task_id=task_id)
     return {"ok": True, "task": row_to_dict(row)}
@@ -330,6 +346,7 @@ async def get_reply(task_id: str, wait: bool = False):
 
     while True:
         conn = db_conn()
+        expire_stale_tasks(conn)
         row = conn.execute("SELECT reply, status FROM tasks WHERE id = ?", (task_id,)).fetchone()
         conn.close()
 
@@ -348,6 +365,7 @@ async def get_reply(task_id: str, wait: bool = False):
 @app.get("/replies", dependencies=[Depends(require_api_key)])
 async def list_pending_replies(limit: int = Query(default=500, ge=1, le=500)):
     conn = db_conn()
+    expire_stale_tasks(conn)
     rows = conn.execute(
         "SELECT id, reply, agterm_session_id, source, agent, app, updated_at "
         "FROM tasks WHERE status = 'replied' AND reply IS NOT NULL "
@@ -363,6 +381,7 @@ async def list_tasks(
     limit: int = Query(default=50, ge=1, le=500), offset: int = Query(default=0, ge=0)
 ):
     conn = db_conn()
+    expire_stale_tasks(conn)
     rows = conn.execute(
         "SELECT * FROM tasks ORDER BY updated_at DESC LIMIT ? OFFSET ?",
         (limit, offset),

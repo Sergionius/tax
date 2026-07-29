@@ -1,6 +1,7 @@
 import json
 import subprocess
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -274,11 +275,89 @@ def test_legacy_backend_fallback_polls_saved_tasks(monkeypatch, tmp_path):
 
     assert agent.poll_backend_replies() == 1
 
-    assert agent._replies_endpoint_available is False
     assert agent.store.get("task-1")["status"] == "delivered"
     inject.assert_called_once_with("continue", "session-1")
     not_found.close.assert_called_once()
     reply_response.close.assert_called_once()
+    agent.stop()
+
+
+def test_replies_endpoint_is_rechecked_after_legacy_fallback(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    agent.store.add(WatchedTask(task_id="legacy-task", agterm_session_id="session-1"))
+    not_found = Mock(status_code=404)
+    empty_legacy = Mock(status_code=200)
+    empty_legacy.raise_for_status.return_value = None
+    empty_legacy.json.return_value = {"ok": False, "reply": None}
+    modern = Mock(status_code=200)
+    modern.raise_for_status.return_value = None
+    modern.json.return_value = {
+        "tasks": [{"id": "new-task", "reply": "continue", "agterm_session_id": "session-2"}]
+    }
+    responses = iter([not_found, empty_legacy, modern])
+    monkeypatch.setattr("tax.agent.requests.get", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr(agent, "watch", lambda _task_id: None)
+
+    assert agent.poll_backend_replies() == 0
+    assert agent.poll_backend_replies() == 1
+    assert agent.store.get("new-task")["status"] == "reply_received"
+    agent.stop()
+
+
+def test_stale_backend_reply_is_expired_without_delivery(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    old_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=31)).isoformat()
+    watch = Mock()
+    monkeypatch.setattr(agent, "watch", watch)
+    monkeypatch.setattr(agent, "_mark_backend_status", Mock(return_value=True))
+
+    scheduled = agent._schedule_backend_tasks(
+        [
+            {
+                "id": "stale-reply",
+                "reply": "too late",
+                "agterm_session_id": "session-1",
+                "updated_at": old_timestamp,
+            }
+        ]
+    )
+
+    assert scheduled == 0
+    assert agent.store.get("stale-reply")["status"] == "expired"
+    watch.assert_not_called()
+    agent.stop()
+
+
+def test_missing_session_is_failed_without_using_active(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    agent.store.record_reply(WatchedTask(task_id="task-1"), "continue")
+    inject = Mock()
+    monkeypatch.setattr(agent, "inject_reply", inject)
+    monkeypatch.setattr(agent, "_mark_backend_status", Mock(return_value=True))
+
+    agent._watch_task("task-1")
+
+    row = agent.store.get("task-1")
+    assert row["status"] == "delivery_failed"
+    assert row["attempts"] == 1
+    assert row["last_error"] == "agterm session id is missing"
+    inject.assert_not_called()
+    agent.stop()
+
+
+def test_pending_tasks_expire_after_poll_ttl(tmp_path):
+    agent = TaxAgent("https://tax.example", "secret", tmp_path, poll_ttl=30 * 60)
+    agent.store.add(WatchedTask(task_id="stale"))
+    agent.store.add(WatchedTask(task_id="fresh"))
+    stale_created_at = (datetime.now(timezone.utc) - timedelta(minutes=31)).isoformat()
+    with agent.store.connect() as conn:
+        conn.execute("UPDATE watched_tasks SET created_at = ? WHERE task_id = 'stale'", (stale_created_at,))
+        conn.commit()
+
+    assert agent.store.expire_stale(agent.poll_ttl) == 1
+    assert agent.store.get("stale")["status"] == "expired"
+    assert agent.store.get("fresh")["status"] == "pending"
+    assert [row["task_id"] for row in agent.store.list_by_status({"pending", "waiting_reply"})] == ["fresh"]
     agent.stop()
 
 

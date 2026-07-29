@@ -9,7 +9,7 @@
 1. Check `GET /health` with the bearer credential.
 2. Check service and reverse-proxy logs.
 3. Verify the SQLite filesystem is writable and has free space.
-4. Restart the service only after preserving logs. The Mac agent polls persistently and recovers replies after backend recovery.
+4. Restart the service only after preserving logs. The Mac agent recovers replies after backend recovery while the 30-minute reply window remains open.
 5. Confirm pending replies with `GET /replies`; do not submit them manually unless the local agent state has been inspected.
 
 ## APNs failures

@@ -94,8 +94,10 @@ else
     exit 1
 fi
 
-# Show status. Redirect to a file to avoid pager/terminal issues.
+# Show status. Use a unique file because a stale root-owned /tmp file may not be writable.
 # The allowed sudo command is exactly: /usr/bin/systemctl status tax
-sudo /usr/bin/systemctl status tax > /tmp/tax.status.txt
+STATUS_FILE=$(mktemp /tmp/tax.status.XXXXXX)
+trap 'rm -f "$STATUS_FILE"' EXIT
+sudo /usr/bin/systemctl status tax > "$STATUS_FILE"
 echo "Service status:"
-cat /tmp/tax.status.txt
+cat "$STATUS_FILE"
