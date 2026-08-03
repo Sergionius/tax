@@ -57,6 +57,23 @@ def test_send_to_agterm_uses_stdin_and_newline(monkeypatch):
     )
 
 
+def test_recap_reads_recent_text_messages(tmp_path, capsys):
+    session = tmp_path / "session.jsonl"
+    entries = [
+        {"type": "message", "message": {"role": "user", "content": [{"type": "text", "text": "first task"}]}},
+        {"type": "message", "message": {"role": "assistant", "content": [{"type": "toolCall", "name": "read"}, {"type": "text", "text": "done"}]}},
+    ]
+    session.write_text("\n".join(json.dumps(item) for item in entries), encoding="utf-8")
+    args = argparse.Namespace(session_file=str(session), turns=2, max_chars=100)
+
+    assert cli.cmd_recap(args) == 0
+
+    output = capsys.readouterr().out
+    assert "first task" in output
+    assert "done" in output
+    assert "toolCall" not in output
+
+
 def test_status_requires_api_key(monkeypatch, capsys):
     monkeypatch.setattr(cli, "load_config", lambda: {})
     monkeypatch.delenv("TAX_API_KEY", raising=False)

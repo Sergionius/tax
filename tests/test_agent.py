@@ -11,7 +11,7 @@ from tax.agent import AgentInstanceLock, AgentStore, TaxAgent, WatchedTask, crea
 
 
 def make_agent(tmp_path: Path) -> TaxAgent:
-    return TaxAgent("https://tax.example", "secret", tmp_path, retry_delay=0.01)
+    return TaxAgent("https://tax.example", "secret", tmp_path, retry_delay=0.01, status_events=set())
 
 
 def test_store_closes_every_database_connection(monkeypatch, tmp_path):
@@ -215,6 +215,74 @@ def test_inject_reply_uses_target_stdin_and_newline(monkeypatch, tmp_path):
     ]
     assert kwargs["input"] == "continue\n"
     assert kwargs["check"] is True
+    agent.stop()
+
+
+def test_inject_reply_uses_origin_socket(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    run = Mock()
+    monkeypatch.setattr("tax.agent.shutil.which", lambda _name: "/usr/local/bin/agtermctl")
+    monkeypatch.setattr("tax.agent.subprocess.run", run)
+
+    agent.inject_reply("continue", "session-123", "/tmp/agterm.sock")
+
+    assert run.call_args.args[0][-2:] == ["--socket", "/tmp/agterm.sock"]
+    agent.stop()
+
+
+def test_backend_reply_preserves_local_origin_socket(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    agent.store.add(WatchedTask(task_id="task-1", agterm_session_id="session-1", agterm_socket="/tmp/a.sock"))
+    monkeypatch.setattr(agent, "watch", lambda _task_id: None)
+
+    assert agent._schedule_backend_tasks(
+        [{"id": "task-1", "reply": "continue", "agterm_session_id": "session-1"}]
+    ) == 1
+
+    assert agent.store.get("task-1")["agterm_socket"] == "/tmp/a.sock"
+    agent.stop()
+
+
+def test_blocked_status_creates_replyable_task_and_deduplicates(monkeypatch, tmp_path):
+    agent = TaxAgent(
+        "https://tax.example",
+        "secret",
+        tmp_path,
+        status_events={"blocked"},
+        agterm_socket="/tmp/agterm.sock",
+    )
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"task_id": "status-task"}
+    post = Mock(return_value=response)
+    monkeypatch.setattr("tax.agent.requests.post", post)
+    monkeypatch.setattr(agent, "_session_context", lambda _event: ("Workspace: tax", "pi"))
+    event = {
+        "kind": "status",
+        "session": "session-1",
+        "window": "window-1",
+        "payload": {"status": "blocked", "name": "pi tax"},
+    }
+
+    assert agent.handle_status_event(event) is True
+    assert agent.handle_status_event(event) is False
+    row = agent.store.get("status-task")
+    assert row["agterm_socket"] == "/tmp/agterm.sock"
+    assert row["agent"] == "pi"
+    assert post.call_args.kwargs["json"]["source"] == "agterm-status"
+    agent.stop()
+
+
+def test_completed_status_is_opt_in(monkeypatch, tmp_path):
+    agent = make_agent(tmp_path)
+    post = Mock()
+    monkeypatch.setattr("tax.agent.requests.post", post)
+
+    assert agent.handle_status_event(
+        {"kind": "status", "session": "session-1", "payload": {"status": "completed"}}
+    ) is False
+
+    post.assert_not_called()
     agent.stop()
 
 

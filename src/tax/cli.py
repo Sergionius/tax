@@ -188,6 +188,8 @@ def cmd_config(args: argparse.Namespace) -> int:
         config["api_key"] = args.api_key
     if args.device_token:
         config["device_token"] = args.device_token
+    if getattr(args, "status_events", None) is not None:
+        config["status_events"] = args.status_events
     save_config(config)
     safe_config = {**config}
     if safe_config.get("api_key"):
@@ -206,13 +208,120 @@ def cmd_agent(args: argparse.Namespace) -> int:
     from tax.agent import run_agent_server
 
     config = load_config()
+    raw_events = args.status_events if args.status_events is not None else config.get("status_events", "blocked")
+    status_events = {item.strip().lower() for item in str(raw_events).split(",") if item.strip()}
+    unknown = status_events - {"blocked", "completed"}
+    if unknown:
+        raise ValueError(f"unknown status events: {', '.join(sorted(unknown))}")
     return run_agent_server(
         server=args.server or get_server(config),
         api_key=args.api_key or get_api_key(config),
         port=args.port,
         state_dir=Path(args.state_dir).expanduser() if args.state_dir else None,
         poll_ttl=args.poll_ttl,
+        device_token=get_device_token(config),
+        status_events=status_events,
+        agterm_socket=args.agterm_socket or os.environ.get("AGTERM_SOCKET", ""),
     )
+
+
+def _doctor_check(name: str, ok: bool, detail: str) -> bool:
+    print(f"{'✓' if ok else '✗'} {name}: {detail}")
+    return ok
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    config = load_config()
+    required_ok = True
+    agtermctl = shutil.which("agtermctl")
+    required_ok &= _doctor_check("agtermctl", bool(agtermctl), agtermctl or "not found in PATH")
+
+    socket = args.agterm_socket or os.environ.get("AGTERM_SOCKET", "")
+    if agtermctl:
+        command = [agtermctl, "tree", "--json"]
+        if socket:
+            command.extend(["--socket", socket])
+        try:
+            result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=5)
+            payload = json.loads(result.stdout)
+            workspaces = len(payload.get("result", {}).get("tree", {}).get("workspaces", []))
+            required_ok &= _doctor_check("agterm control", True, f"connected, {workspaces} workspace(s)")
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            required_ok &= _doctor_check("agterm control", False, str(error))
+
+    api_key = get_api_key(config)
+    required_ok &= _doctor_check("API key", bool(api_key), "configured" if api_key else "missing")
+    if api_key:
+        try:
+            response = requests.get(f"{get_server(config).rstrip('/')}/health", headers=get_headers(config), timeout=5)
+            response.raise_for_status()
+            _doctor_check("backend", True, get_server(config))
+        except requests.RequestException as error:
+            required_ok &= _doctor_check("backend", False, str(error))
+
+    try:
+        response = requests.get("http://127.0.0.1:17373/health", timeout=2)
+        response.raise_for_status()
+        health = response.json()
+        _doctor_check("tax-agent", True, f"running, watching {health.get('watching', 0)} task(s)")
+    except (requests.RequestException, ValueError) as error:
+        required_ok &= _doctor_check("tax-agent", False, str(error))
+
+    hook = Path.home() / ".config" / "agterm" / "agent-status" / "agterm-agent-status.sh"
+    print(f"{'✓' if hook.is_file() else '-'} agent status hooks: {hook if hook.is_file() else 'not installed (optional)'}")
+    token = get_device_token(config)
+    print(f"{'✓' if token else '-'} device token: {'configured' if token else 'backend registration fallback'}")
+    return 0 if required_ok else 1
+
+
+def _message_text(content: object) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    parts = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text" and isinstance(part.get("text"), str):
+            parts.append(part["text"])
+    return "\n".join(parts).strip()
+
+
+def cmd_recap(args: argparse.Namespace) -> int:
+    raw_path = args.session_file or os.environ.get("PI_SESSION_FILE", "")
+    if not raw_path:
+        print("[tax] error: pass --session-file or run inside Pi", file=sys.stderr)
+        return 1
+    path = Path(raw_path).expanduser()
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        print(f"[tax] failed to read session: {error}", file=sys.stderr)
+        return 1
+    messages = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        message = entry.get("message") if entry.get("type") == "message" else None
+        if not isinstance(message, dict) or message.get("role") not in {"user", "assistant"}:
+            continue
+        text = _message_text(message.get("content"))
+        if text:
+            messages.append((message["role"], text))
+    selected = messages[-max(1, args.turns * 2) :]
+    if not selected:
+        print("[tax] session has no readable conversation", file=sys.stderr)
+        return 1
+    print(f"Pi recap — {path.name}")
+    for role, text in selected:
+        compact = " ".join(text.split())
+        if len(compact) > args.max_chars:
+            compact = compact[: args.max_chars - 1].rstrip() + "…"
+        print(f"{role:9} {compact}")
+    return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -248,6 +357,7 @@ def main() -> int:
     p_config.add_argument("--server", help="Backend URL, e.g. https://tax.138-249-127-23.nip.io")
     p_config.add_argument("--api-key", help="Backend API key")
     p_config.add_argument("--device-token", help="iPhone device token for APNs")
+    p_config.add_argument("--status-events", help="agterm statuses to push: blocked,completed; empty disables")
     p_config.set_defaults(func=cmd_config)
 
     # run
@@ -268,7 +378,24 @@ def main() -> int:
         default=1800,
         help="Expire unanswered tasks after this many seconds (default: 1800)",
     )
+    p_agent.add_argument(
+        "--status-events",
+        help="Comma-separated agterm statuses to push: blocked,completed; empty disables monitoring",
+    )
+    p_agent.add_argument("--agterm-socket", help="Control socket for status monitoring")
     p_agent.set_defaults(func=cmd_agent)
+
+    # doctor
+    p_doctor = subparsers.add_parser("doctor", help="Check tax, backend, and agterm integration")
+    p_doctor.add_argument("--agterm-socket", help="Control socket to check")
+    p_doctor.set_defaults(func=cmd_doctor)
+
+    # recap
+    p_recap = subparsers.add_parser("recap", help="Show recent user/assistant turns from a Pi session")
+    p_recap.add_argument("--session-file", help="Pi JSONL session file (defaults to PI_SESSION_FILE)")
+    p_recap.add_argument("--turns", type=int, default=4, help="Number of recent turns")
+    p_recap.add_argument("--max-chars", type=int, default=240, help="Maximum characters per message")
+    p_recap.set_defaults(func=cmd_recap)
 
     # status
     p_status = subparsers.add_parser("status", help="List recent tasks on backend")

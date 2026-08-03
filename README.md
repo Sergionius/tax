@@ -5,6 +5,7 @@ Push-уведомления и remote reply для AI-агентов, запущ
 ## Что делает
 
 - Когда `pi` (или другой агент) в agterm завершается или блокируется, Mac отправляет push на iPhone.
+- `tax-agent` слушает status events agterm; `blocked` включён по умолчанию, generic `completed` — опционально.
 - iPhone показывает уведомление. Ты открываешь приложение, видишь контекст задачи и историю.
 - Можно ответить текстом прямо из приложения.
 - Mac забирает ответ с backend и подаёт его обратно в agterm.
@@ -53,7 +54,7 @@ tax agent
 curl http://127.0.0.1:17373/health
 ```
 
-Extension отправляет push после `agent_settled`, получает `task_id` и передаёт его локальному агенту. Агент ждёт ответ с iPhone и вводит его в исходную сессию через:
+Extension отправляет push после `agent_settled`, получает `task_id` и передаёт его локальному агенту. В контекст входят cwd и путь к Pi session file. Локально также сохраняется control socket исходной копии agterm — он не отправляется backend. Агент ждёт ответ с iPhone и вводит его в исходную сессию через:
 
 ```bash
 agtermctl session type --target "$AGTERM_SESSION_ID" --stdin
@@ -66,6 +67,21 @@ agtermctl session type --target "$AGTERM_SESSION_ID" --stdin
 ```bash
 ./scripts/install.sh
 ```
+
+Диагностика всей цепочки:
+
+```bash
+tax doctor
+```
+
+Status monitor отправляет `blocked` без дублирования completed push от Pi extension. Для generic completed уведомлений других агентов:
+
+```bash
+tax config --status-events blocked,completed
+./scripts/install-launch-agent.sh
+```
+
+Пустое значение `--status-events ''` отключает monitor.
 
 ## Использование
 
@@ -81,11 +97,30 @@ tax run pi -p "напиши REST API на Python"
 tax run --detach pi -p "сделай рефакторинг"
 ```
 
-Посмотреть историю задач:
+Посмотреть историю задач и краткий deterministic recap текущей Pi-сессии:
 
 ```bash
 tax status
+tax recap                       # использует PI_SESSION_FILE
+tax recap --session-file FILE   # последние user/assistant turns без tool traffic
 ```
+
+## agterm workflows
+
+Опциональный установщик добавляет native project launcher, dashboard flagged-агентов, directory picker, smart split и стабильное продолжение Pi conversation после рестарта agterm:
+
+```bash
+./scripts/install-agterm-workflows.sh
+```
+
+Горячие клавиши:
+
+- `⌘⇧G` — выбрать проект из `~/Developer` и запустить Pi; формат `project: prompt` сразу передаёт задачу;
+- `⌃⇧G` — показать/скрыть grid flagged-агентов;
+- `⌃⌥D` — выбрать директорию;
+- `⌃⌥S` — smart split.
+
+Корни проектов задаются через `TAX_PROJECT_ROOTS`, разделитель — `:`.
 
 ## Развёртывание backend на VPS
 

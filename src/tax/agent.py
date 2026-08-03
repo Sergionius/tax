@@ -30,6 +30,7 @@ DEFAULT_POLL_TTL = 30 * 60
 DEFAULT_MAX_WORKERS = 16
 DEFAULT_IMPORT_INTERVAL = 5.0
 DEFAULT_REPLY_POLL_INTERVAL = 5.0
+DEFAULT_STATUS_RETRY_INTERVAL = 5.0
 DEFAULT_CLEANUP_INTERVAL = 24 * 60 * 60
 LEGACY_POLL_BATCH_SIZE = 20
 TERMINAL_RETENTION_DAYS = 7
@@ -51,6 +52,7 @@ def default_state_dir() -> Path:
 class WatchedTask(BaseModel):
     task_id: str
     agterm_session_id: str = ""
+    agterm_socket: str = ""
     source: str = ""
     agent: str = ""
     app: str = ""
@@ -74,6 +76,7 @@ class AgentStore:
                 CREATE TABLE IF NOT EXISTS watched_tasks (
                     task_id TEXT PRIMARY KEY,
                     agterm_session_id TEXT,
+                    agterm_socket TEXT,
                     source TEXT,
                     agent TEXT,
                     app TEXT,
@@ -86,6 +89,9 @@ class AgentStore:
                 )
                 """
             )
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(watched_tasks)")}
+            if "agterm_socket" not in columns:
+                conn.execute("ALTER TABLE watched_tasks ADD COLUMN agterm_socket TEXT")
 
     def add(self, task: WatchedTask) -> bool:
         now = now_iso()
@@ -93,12 +99,13 @@ class AgentStore:
             cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO watched_tasks
-                (task_id, agterm_session_id, source, agent, app, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+                (task_id, agterm_session_id, agterm_socket, source, agent, app, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
                 """,
                 (
                     task.task_id,
                     task.agterm_session_id,
+                    task.agterm_socket,
                     task.source,
                     task.agent,
                     task.app,
@@ -153,10 +160,11 @@ class AgentStore:
             conn.execute(
                 """
                 INSERT INTO watched_tasks
-                (task_id, agterm_session_id, source, agent, app, status, reply, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 'reply_received', ?, ?, ?)
+                (task_id, agterm_session_id, agterm_socket, source, agent, app, status, reply, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'reply_received', ?, ?, ?)
                 ON CONFLICT(task_id) DO UPDATE SET
                     agterm_session_id = excluded.agterm_session_id,
+                    agterm_socket = CASE WHEN excluded.agterm_socket != '' THEN excluded.agterm_socket ELSE watched_tasks.agterm_socket END,
                     source = excluded.source,
                     agent = excluded.agent,
                     app = excluded.app,
@@ -171,6 +179,7 @@ class AgentStore:
                 (
                     task.task_id,
                     task.agterm_session_id,
+                    task.agterm_socket,
                     task.source,
                     task.agent,
                     task.app,
@@ -239,9 +248,15 @@ class TaxAgent:
         poll_ttl: int = DEFAULT_POLL_TTL,
         retry_delay: float = 5.0,
         max_workers: int = DEFAULT_MAX_WORKERS,
+        device_token: str = "",
+        status_events: Optional[set[str]] = None,
+        agterm_socket: str = "",
     ):
         self.server = server.rstrip("/")
         self.api_key = api_key
+        self.device_token = device_token
+        self.status_events = status_events if status_events is not None else {"blocked"}
+        self.agterm_socket = agterm_socket
         self.state_dir = state_dir
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.store = AgentStore(self.state_dir / "agent.db")
@@ -253,6 +268,10 @@ class TaxAgent:
         self._watching_lock = threading.Lock()
         self._importer: Optional[threading.Thread] = None
         self._reply_poller: Optional[threading.Thread] = None
+        self._status_monitor: Optional[threading.Thread] = None
+        self._status_process: Optional[subprocess.Popen[str]] = None
+        self._status_process_lock = threading.Lock()
+        self._last_agent_status: dict[str, str] = {}
         self._fallback_offset = 0
         self._next_cleanup_at = time.monotonic() + DEFAULT_CLEANUP_INTERVAL
         self._legacy_poll_offset = 0
@@ -278,6 +297,9 @@ class TaxAgent:
         self._reply_poller = threading.Thread(target=self._reply_poll_loop, name="tax-reply-poller", daemon=True)
         self._importer.start()
         self._reply_poller.start()
+        if self.status_events:
+            self._status_monitor = threading.Thread(target=self._status_event_loop, name="tax-status-monitor", daemon=True)
+            self._status_monitor.start()
 
     def stop(self) -> None:
         with self._stop_lock:
@@ -285,6 +307,9 @@ class TaxAgent:
                 return
             self._stopped = True
             self.stop_event.set()
+            with self._status_process_lock:
+                if self._status_process is not None and self._status_process.poll() is None:
+                    self._status_process.terminate()
             self._executor.shutdown(wait=False, cancel_futures=True)
 
     def register(self, task: WatchedTask) -> bool:
@@ -339,7 +364,11 @@ class TaxAgent:
             return
         try:
             self.store.update(task_id, "delivering", error=None)
-            self.inject_reply(reply, target)
+            socket = row["agterm_socket"] or ""
+            if socket:
+                self.inject_reply(reply, target, socket)
+            else:
+                self.inject_reply(reply, target)
         except (OSError, subprocess.SubprocessError) as error:
             self.store.update(
                 task_id,
@@ -359,19 +388,157 @@ class TaxAgent:
             self.store.update(task_id, "delivered", error=None)
         log_event(logger, "reply_delivered", task_id=task_id, session_id=target)
 
-    def inject_reply(self, reply: str, target: str) -> None:
+    def inject_reply(self, reply: str, target: str, socket: str = "") -> None:
         executable = shutil.which("agtermctl")
         if not executable:
             raise FileNotFoundError("agtermctl not found in PATH")
+        command = [executable, "session", "type", "--target", target, "--stdin"]
+        if socket:
+            command.extend(["--socket", socket])
         # The newline submits the reply after inserting it into the original session.
         subprocess.run(
-            [executable, "session", "type", "--target", target, "--stdin"],
+            command,
             input=f"{reply}\n",
             text=True,
             check=True,
             capture_output=True,
             timeout=15,
         )
+
+    def _agterm_command(self, *arguments: str, socket: str = "") -> list[str]:
+        executable = shutil.which("agtermctl")
+        if not executable:
+            raise FileNotFoundError("agtermctl not found in PATH")
+        command = [executable, *arguments]
+        selected_socket = socket or self.agterm_socket
+        if selected_socket:
+            command.extend(["--socket", selected_socket])
+        return command
+
+    def _session_context(self, event: dict) -> tuple[str, str]:
+        window = str(event.get("window") or "")
+        session_id = str(event.get("session") or "")
+        if not window or not session_id:
+            return "", ""
+        result = subprocess.run(
+            self._agterm_command("tree", "--json", "--window", window),
+            text=True,
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+        tree = json.loads(result.stdout).get("result", {}).get("tree", {})
+        for workspace in tree.get("workspaces", []):
+            for session in workspace.get("sessions", []):
+                if session.get("id") == session_id:
+                    cwd = str(session.get("cwd") or "")
+                    context = f"Workspace: {workspace.get('name', '')}"
+                    if cwd:
+                        context += f"\nDirectory: {cwd}"
+                    foreground = session.get("foreground") or []
+                    command = Path(str(foreground[0])).name if foreground else ""
+                    return context, command
+        return "", ""
+
+    @staticmethod
+    def _agent_from_command(command: str) -> str:
+        lowered = command.lower()
+        for agent in ("pi", "claude", "codex", "opencode", "kimi"):
+            if lowered == agent or lowered.startswith(f"{agent}-"):
+                return agent
+        return "agent"
+
+    def handle_status_event(self, event: dict) -> bool:
+        if event.get("kind") != "status":
+            return False
+        session_id = str(event.get("session") or "").strip()
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        status = str(payload.get("status") or "").strip().lower()
+        if not session_id or not status:
+            return False
+        previous = self._last_agent_status.get(session_id)
+        self._last_agent_status[session_id] = status
+        if previous == status or status not in self.status_events:
+            return False
+
+        name = str(payload.get("name") or session_id)
+        try:
+            context, command = self._session_context(event)
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            log_event(logger, "status_context_failed", level=logging.WARNING, session_id=session_id, error=str(error))
+            context, command = "", ""
+        agent_name = self._agent_from_command(command)
+        # Pi's extension sends a richer completed task with prompt and transcript.
+        # Keep generic completion for agents that do not have that integration.
+        if status == "completed" and agent_name == "pi":
+            return False
+        body = f"{name} requires attention" if status == "blocked" else f"{name} completed"
+        response = requests.post(
+            f"{self.server}/push",
+            json={
+                "device_token": self.device_token,
+                "title": f"{agent_name} {status}",
+                "body": body,
+                "context": context,
+                "logs": "",
+                "source": "agterm-status",
+                "agent": agent_name,
+                "app": "tax",
+                "agterm_session_id": session_id,
+            },
+            headers=self.headers,
+            timeout=15,
+        )
+        try:
+            response.raise_for_status()
+            task_id = str(response.json().get("task_id") or "")
+            if not task_id:
+                raise ValueError("backend response does not contain task_id")
+            self.register(
+                WatchedTask(
+                    task_id=task_id,
+                    agterm_session_id=session_id,
+                    agterm_socket=self.agterm_socket,
+                    source="agterm-status",
+                    agent=agent_name,
+                    app="tax",
+                )
+            )
+            log_event(logger, "status_push_sent", task_id=task_id, session_id=session_id, status=status)
+            return True
+        finally:
+            response.close()
+
+    def _status_event_loop(self) -> None:
+        while not self.stop_event.is_set():
+            process = None
+            try:
+                process = subprocess.Popen(
+                    self._agterm_command("events", "--json", "--kind", "status"),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                with self._status_process_lock:
+                    self._status_process = process
+                if process.stdout is None:
+                    raise RuntimeError("agterm event stream has no stdout")
+                for line in process.stdout:
+                    if self.stop_event.is_set():
+                        break
+                    try:
+                        self.handle_status_event(json.loads(line))
+                    except (requests.RequestException, ValueError) as error:
+                        log_event(logger, "status_event_failed", level=logging.WARNING, error=str(error))
+            except (OSError, subprocess.SubprocessError, RuntimeError) as error:
+                log_event(logger, "status_monitor_failed", level=logging.WARNING, error=str(error))
+            finally:
+                if process is not None and process.poll() is None:
+                    process.terminate()
+                with self._status_process_lock:
+                    if self._status_process is process:
+                        self._status_process = None
+            self.stop_event.wait(DEFAULT_STATUS_RETRY_INTERVAL)
 
     def _mark_backend_status(self, task_id: str, status: str) -> bool:
         response = None
@@ -450,6 +617,7 @@ class TaxAgent:
             task = WatchedTask(
                 task_id=task_id,
                 agterm_session_id=str(item.get("agterm_session_id") or ""),
+                agterm_socket=str(row["agterm_socket"] or "") if row else "",
                 source=str(item.get("source") or ""),
                 agent=str(item.get("agent") or ""),
                 app=str(item.get("app") or ""),
@@ -618,6 +786,9 @@ def run_agent_server(
     port: int = DEFAULT_PORT,
     state_dir: Optional[Path] = None,
     poll_ttl: int = DEFAULT_POLL_TTL,
+    device_token: str = "",
+    status_events: Optional[set[str]] = None,
+    agterm_socket: str = "",
 ) -> int:
     if not api_key:
         log_event(logger, "startup_failed", level=logging.ERROR, reason="api_key_not_configured")
@@ -630,7 +801,15 @@ def run_agent_server(
 
     agent: Optional[TaxAgent] = None
     try:
-        agent = TaxAgent(server, api_key, resolved_state_dir, poll_ttl=poll_ttl)
+        agent = TaxAgent(
+            server,
+            api_key,
+            resolved_state_dir,
+            poll_ttl=poll_ttl,
+            device_token=device_token,
+            status_events=status_events,
+            agterm_socket=agterm_socket,
+        )
         agent.start()
         server_holder: dict[str, uvicorn.Server] = {}
 

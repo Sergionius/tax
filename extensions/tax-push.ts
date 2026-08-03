@@ -24,6 +24,7 @@ type SessionMessageEntry = {
 type TaskHandoff = {
   task_id: string;
   agterm_session_id: string;
+  agterm_socket: string;
   source: string;
   agent: string;
   app: string;
@@ -213,15 +214,25 @@ export default function (pi: ExtensionAPI) {
         app: "tax",
         agterm_session_id: process.env.AGTERM_SESSION_ID?.trim() || "",
       };
+      const sessionFile = ctx.sessionManager?.getSessionFile?.() || process.env.PI_SESSION_FILE?.trim() || "";
+      const context = [
+        `Command: pi -p ${prompt}`,
+        `Directory: ${ctx.cwd}`,
+        sessionFile ? `Session: ${sessionFile}` : "",
+      ].filter(Boolean).join("\n");
       const taskID = await postPush({
         title: "pi completed",
         body: makeNotificationBody(logs),
-        context: `Command: pi -p ${prompt}`,
+        context,
         logs,
         ...metadata,
       }, apiKey);
 
-      const handoff: TaskHandoff = { task_id: taskID, ...metadata };
+      const handoff: TaskHandoff = {
+        task_id: taskID,
+        agterm_socket: process.env.AGTERM_SOCKET?.trim() || "",
+        ...metadata,
+      };
       try {
         await handoffToLocalAgent(handoff);
         logQuietly(`Push sent; watching task ${taskID.slice(0, 8)}`);

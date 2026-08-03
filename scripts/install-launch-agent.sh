@@ -77,7 +77,20 @@ then
 fi
 
 launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
-launchctl bootstrap "$DOMAIN" "$PLIST"
+# launchd may keep the old label in a transient teardown state and answer EIO
+# when bootstrap follows immediately. Retry instead of leaving the bridge down.
+loaded=false
+for _ in {1..10}; do
+  if launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
+    loaded=true
+    break
+  fi
+  sleep 0.5
+done
+if [[ "$loaded" != true ]] && ! launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; then
+  echo "❌ failed to bootstrap $LABEL after retries" >&2
+  exit 1
+fi
 launchctl enable "$DOMAIN/$LABEL"
 launchctl kickstart -k "$DOMAIN/$LABEL"
 
