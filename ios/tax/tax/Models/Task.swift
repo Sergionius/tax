@@ -96,6 +96,19 @@ extension Task {
         Self.displayDate(from: updatedAt)
     }
 
+    var displayListTimestamp: String {
+        let value = updatedAt.isEmpty ? createdAt : updatedAt
+        guard let date = Self.parseDate(value) else { return Self.displayDate(from: value) }
+
+        if Calendar.current.isDateInToday(date) {
+            return date.formatted(date: .omitted, time: .shortened)
+        }
+        if Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year) {
+            return date.formatted(.dateTime.day().month(.abbreviated))
+        }
+        return date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
     var displayStatus: String {
         status.isEmpty ? "unknown" : status
     }

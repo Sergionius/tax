@@ -14,7 +14,7 @@ final class TaxUITests: XCTestCase {
 
     func testSavingSettingsLoadsMockTasks() {
         let app = launch()
-        app.tabBars.buttons["Settings"].tap()
+        app.buttons["settings.open"].tap()
         let apiKey = app.secureTextFields["settings.apiKey"]
         XCTAssertTrue(apiKey.waitForExistence(timeout: 3))
         apiKey.tap()
@@ -22,7 +22,7 @@ final class TaxUITests: XCTestCase {
         app.keyboards.buttons["Return"].tap()
         app.swipeUp()
         app.buttons["settings.save"].tap()
-        app.tabBars.buttons["Tasks"].tap()
+        app.buttons["Done"].tap()
         XCTAssertTrue(app.staticTexts["Mock tax task"].waitForExistence(timeout: 5))
     }
 
@@ -30,10 +30,8 @@ final class TaxUITests: XCTestCase {
         let app = launch("--mock-configured")
         XCTAssertTrue(app.staticTexts["Mock tax task"].waitForExistence(timeout: 5))
         app.staticTexts["Mock tax task"].tap()
-        XCTAssertTrue(app.buttons["task.reply"].waitForExistence(timeout: 5))
-        app.buttons["task.reply"].tap()
-        let editor = app.textViews["reply.text"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 3))
+        let editor = app.descendants(matching: .any)["reply.text"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
         editor.tap()
         editor.typeText("UI reply")
         app.buttons["reply.send"].tap()
@@ -44,19 +42,19 @@ final class TaxUITests: XCTestCase {
         let app = launch("--mock-reply-error")
         XCTAssertTrue(app.staticTexts["Mock tax task"].waitForExistence(timeout: 5))
         app.staticTexts["Mock tax task"].tap()
-        app.buttons["task.reply"].tap()
-        let editor = app.textViews["reply.text"]
+        let editor = app.descendants(matching: .any)["reply.text"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
         editor.tap()
         editor.typeText("Keep me")
         app.buttons["reply.send"].tap()
-        XCTAssertTrue(app.alerts["Error"].waitForExistence(timeout: 5))
-        app.alerts["Error"].buttons["OK"].tap()
+        XCTAssertTrue(app.alerts["Could Not Send Reply"].waitForExistence(timeout: 5))
+        app.alerts["Could Not Send Reply"].buttons["OK"].tap()
         XCTAssertEqual(editor.value as? String, "Keep me")
     }
 
     func testMockPushOpensExpectedTask() {
         let app = launch("--mock-task-id", "mock-task-1")
-        XCTAssertTrue(app.buttons["task.reply"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["reply.text"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Review the generated tax report."].exists)
     }
 

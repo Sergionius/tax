@@ -4,6 +4,7 @@ struct TaskListView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(AppState.self) private var appState
     @State private var store = TaskListStore()
+    @State private var showsSettings = false
 
     var body: some View {
         @Bindable var appState = appState
@@ -11,21 +12,22 @@ struct TaskListView: View {
         NavigationStack(path: $appState.navigationPath) {
             Group {
                 if !store.tasks.isEmpty {
-                    taskList
+                    conversationList
                 } else {
                     emptyContent
                 }
             }
-            .navigationTitle("Tasks")
+            .background(Color.white)
+            .navigationTitle("tax")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Swift.Task { await load() }
+                        showsSettings = true
                     } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
+                        Image(systemName: "slider.horizontal.3")
                     }
-                    .disabled(store.state == .loading)
-                    .accessibilityIdentifier("tasks.refresh")
+                    .accessibilityLabel("Settings")
+                    .accessibilityIdentifier("settings.open")
                 }
             }
             .task { await load() }
@@ -35,7 +37,10 @@ struct TaskListView: View {
             .navigationDestination(for: String.self) { taskID in
                 TaskDetailView(taskID: taskID)
             }
-            .alert("Error", isPresented: errorBinding) {
+            .sheet(isPresented: $showsSettings) {
+                SettingsSheet()
+            }
+            .alert("Could Not Refresh", isPresented: errorBinding) {
                 Button("Retry") { Swift.Task { await load() } }
                 Button("OK", role: .cancel) {}
             } message: {
@@ -44,13 +49,18 @@ struct TaskListView: View {
         }
     }
 
-    private var taskList: some View {
+    private var conversationList: some View {
         List(store.tasks) { task in
             NavigationLink(value: task.id) {
-                TaskRowView(task: task)
+                ConversationRow(task: task)
             }
             .accessibilityIdentifier("task.\(task.id)")
+            .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 14, trailing: 14))
+            .listRowSeparatorTint(Color.black.opacity(0.08))
+            .listRowBackground(Color.white)
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .refreshable { await load(showOverlay: false) }
     }
 
@@ -58,21 +68,31 @@ struct TaskListView: View {
     private var emptyContent: some View {
         switch store.state {
         case .idle, .empty:
-            ContentUnavailableView(
-                "No Tasks",
-                systemImage: "tray",
-                description: Text(settings.apiKey.isEmpty ? "Add your API key in Settings." : "Pull to refresh or wait for a push notification.")
-            )
+            ContentUnavailableView {
+                Label("No conversations", systemImage: "bubble.left.and.bubble.right")
+            } description: {
+                Text(settings.apiKey.isEmpty ? "Connect the app to start receiving agent results." : "New agent results will appear here.")
+            } actions: {
+                if settings.apiKey.isEmpty {
+                    Button("Open Settings") { showsSettings = true }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
         case .loading:
-            ProgressView("Loading…")
+            ProgressView("Loading conversations…")
         case let .error(message):
             ContentUnavailableView {
-                Label(settings.apiKey.isEmpty ? "Configuration Required" : "Could Not Load Tasks", systemImage: "exclamationmark.triangle")
+                Label(settings.apiKey.isEmpty ? "Configuration Required" : "Could Not Load Conversations", systemImage: "exclamationmark.triangle")
             } description: {
                 Text(message)
             } actions: {
-                Button("Retry") { Swift.Task { await load() } }
-                    .accessibilityIdentifier("tasks.retry")
+                if settings.apiKey.isEmpty {
+                    Button("Open Settings") { showsSettings = true }
+                        .accessibilityIdentifier("settings.open.empty")
+                } else {
+                    Button("Retry") { Swift.Task { await load() } }
+                        .accessibilityIdentifier("tasks.retry")
+                }
             }
         case .content:
             EmptyView()
@@ -96,44 +116,75 @@ struct TaskListView: View {
     }
 }
 
-private struct TaskRowView: View {
+private struct ConversationRow: View {
     let task: Task
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(task.title)
-                    .font(.headline)
-                    .lineLimit(2)
-                Spacer()
-                Text(task.displayStatus)
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(statusColor.opacity(0.15), in: Capsule())
-                    .foregroundStyle(statusColor)
-            }
+        HStack(alignment: .top, spacing: 12) {
+            statusIndicator
+                .padding(.top, 7)
 
-            if !task.body.isEmpty {
-                Text(task.body)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-            }
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(task.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.black)
+                        .lineLimit(1)
 
-            Text(task.updatedAt.isEmpty ? task.displayCreatedAt : task.displayUpdatedAt)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+                    Spacer(minLength: 8)
+
+                    Text(task.displayListTimestamp)
+                        .font(.caption)
+                        .foregroundStyle(Color.black.opacity(0.45))
+                }
+
+                if !preview.isEmpty {
+                    Text(preview)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.black.opacity(0.58))
+                        .lineLimit(2)
+                }
+            }
         }
-        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var statusIndicator: some View {
+        Circle()
+            .fill(statusColor)
+            .frame(width: task.statusKind == .pending ? 8 : 6, height: task.statusKind == .pending ? 8 : 6)
+            .accessibilityLabel("Status: \(task.displayStatus)")
+    }
+
+    private var preview: String {
+        if let reply = task.reply, !reply.isEmpty {
+            return "You: \(reply)"
+        }
+        return task.body
     }
 
     private var statusColor: Color {
         switch task.statusKind {
-        case .success: .green
+        case .pending: .blue
+        case .success: Color.black.opacity(0.25)
         case .failure: .red
-        case .pending: .orange
-        case .unknown: .secondary
+        case .unknown: Color.black.opacity(0.25)
         }
+    }
+}
+
+private struct SettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            SettingsView()
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+        }
+        .preferredColorScheme(.light)
     }
 }
