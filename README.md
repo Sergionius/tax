@@ -54,7 +54,7 @@ tax agent
 curl http://127.0.0.1:17373/health
 ```
 
-Extension отправляет push после `agent_settled`, получает `task_id` и передаёт его локальному агенту. В контекст входят cwd и путь к Pi session file. Локально также сохраняется control socket исходной копии agterm — он не отправляется backend. Агент ждёт ответ с iPhone и вводит его в исходную сессию через:
+Extension отправляет push после `agent_settled` при любом результате: нормальный ответ, исчерпанные provider/network retry или остановка без финального ответа. Для ошибок он собирает attempts из `errorMessage`/`diagnostics`, очищает HTML, определяет категорию (`network`, `auth`, `rate_limit`, `provider`, `cancelled`) и предлагает следующее действие. В контекст входят outcome, число attempts, cwd и путь к Pi session file. Получив `task_id`, extension передаёт его локальному агенту. Локально также сохраняется control socket исходной копии agterm — он не отправляется backend. Агент ждёт ответ с iPhone и вводит его в исходную сессию через:
 
 ```bash
 agtermctl session type --target "$AGTERM_SESSION_ID" --stdin

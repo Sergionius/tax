@@ -13,6 +13,21 @@ const EXTENSION_NAME = "tax-push";
 type AnyMessage = {
   role?: string;
   content?: unknown;
+  stopReason?: string;
+  errorMessage?: string;
+  diagnostics?: unknown;
+};
+
+type TurnResult = {
+  key: string;
+  prompt: string;
+  title: string;
+  body: string;
+  logs: string;
+  outcome: "completed" | "failed" | "stopped";
+  attempts: number;
+  category?: string;
+  suggestion?: string;
 };
 
 type SessionMessageEntry = {
@@ -51,6 +66,74 @@ function contentToText(content: unknown): string {
   return content.map(partToText).filter((text) => text.length > 0).join("\n");
 }
 
+function cleanErrorText(value: string, maxLength = 500): string {
+  let text = value;
+  if (/<[a-z][\s\S]*>/i.test(text)) {
+    text = text
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+      .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, " ")
+      .replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, " ")
+      .replace(/<[^>]+>/g, " ");
+  }
+  text = text
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function diagnosticMessages(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const messages: string[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const diagnostic = item as Record<string, unknown>;
+    if (typeof diagnostic.message === "string") messages.push(diagnostic.message);
+    const error = diagnostic.error;
+    if (error && typeof error === "object" && typeof (error as Record<string, unknown>).message === "string") {
+      messages.push((error as Record<string, string>).message);
+    }
+  }
+  return messages.map((message) => cleanErrorText(message)).filter(Boolean);
+}
+
+function messageFailure(message: AnyMessage): string | undefined {
+  const diagnostics = diagnosticMessages(message.diagnostics);
+  if (diagnostics.length > 0) return diagnostics[diagnostics.length - 1];
+  if (typeof message.errorMessage === "string" && message.errorMessage.trim()) {
+    return cleanErrorText(message.errorMessage);
+  }
+  if (message.stopReason === "error") return "Pi stopped with an unspecified provider error";
+  return undefined;
+}
+
+function classifyFailure(errors: string[]): { category: string; suggestion: string } {
+  const text = errors.join(" ").toLowerCase();
+  if (/websocket|vpn|dns|ssl|timeout|timed out|connection|unable to load site|network|eof|resolve/.test(text)) {
+    return { category: "network", suggestion: "Check VPN and network connection, then retry" };
+  }
+  if (/401|403|unauthori[sz]ed|authentication|api key|token expired|invalid token/.test(text)) {
+    return { category: "auth", suggestion: "Check provider authentication and retry" };
+  }
+  if (/429|rate.?limit|too many requests|quota/.test(text)) {
+    return { category: "rate_limit", suggestion: "Wait for the provider limit to reset, then retry" };
+  }
+  if (/cancel|abort|interrupt/.test(text)) {
+    return { category: "cancelled", suggestion: "Retry if the cancellation was accidental" };
+  }
+  if (/\b5\d\d\b|provider|overloaded|unavailable/.test(text)) {
+    return { category: "provider", suggestion: "Retry later or switch provider" };
+  }
+  return { category: "unknown", suggestion: "Inspect the error and retry" };
+}
+
 function makeNotificationBody(text: string, maxLength = 180): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
   if (!oneLine) return "pi completed";
@@ -62,29 +145,81 @@ function getContextEntries(ctx: { sessionManager?: { buildContextEntries?: () =>
   return ctx.sessionManager?.buildContextEntries?.() ?? ctx.sessionManager?.getBranch?.() ?? [];
 }
 
-function findLastAssistantMessage(entries: unknown[]) {
+export function analyzeTurn(
+  entries: unknown[],
+  fallbackAssistant: { id?: string; message: AnyMessage } | undefined,
+  fallbackPrompt: string,
+): TurnResult {
+  let userIndex = -1;
+  let prompt = fallbackPrompt.trim();
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index] as SessionMessageEntry;
-    if (entry?.type === "message" && entry.message?.role === "assistant") {
-      return { id: entry.id, message: entry.message, index };
+    if (entry?.type === "message" && entry.message?.role === "user") {
+      userIndex = index;
+      prompt = contentToText(entry.message.content).trim() || prompt;
+      break;
     }
   }
-  return undefined;
-}
 
-function findFirstUserPromptForTurn(entries: unknown[], assistantIndex: number): string | undefined {
-  let prompt: string | undefined;
-  for (let index = assistantIndex - 1; index >= 0; index--) {
+  const assistants: Array<{ id?: string; message: AnyMessage }> = [];
+  for (let index = userIndex + 1; index < entries.length; index++) {
     const entry = entries[index] as SessionMessageEntry;
-    if (entry?.type !== "message" || !entry.message) continue;
-    if (entry.message.role === "user") {
-      const text = contentToText(entry.message.content).trim();
-      if (text) prompt = text;
-      continue;
+    if (entry?.type === "message" && entry.message?.role === "assistant") {
+      assistants.push({ id: entry.id, message: entry.message });
     }
-    if (prompt && entry.message.role === "assistant") break;
   }
-  return prompt;
+  if (assistants.length === 0 && fallbackAssistant?.message.role === "assistant") assistants.push(fallbackAssistant);
+
+  const successful = [...assistants].reverse().find((item) => contentToText(item.message.content).trim());
+  const failures: Array<{ id?: string; error: string }> = [];
+  for (const item of assistants) {
+    const error = messageFailure(item.message);
+    if (error) failures.push({ id: item.id, error });
+  }
+  const last = assistants[assistants.length - 1];
+
+  if (successful) {
+    const logs = contentToText(successful.message.content).trim();
+    return {
+      key: `${last?.id ?? successful.id ?? "event"}:${prompt}:${logs.length}`,
+      prompt,
+      title: "pi completed",
+      body: makeNotificationBody(logs),
+      logs,
+      outcome: "completed",
+      attempts: Math.max(1, assistants.length),
+    };
+  }
+
+  if (failures.length > 0) {
+    const errors = failures.map((item) => item.error);
+    const classification = classifyFailure(errors);
+    const attempts = failures.length;
+    const latest = errors[errors.length - 1];
+    return {
+      key: `${last?.id ?? "error"}:${prompt}:${attempts}:${latest}`,
+      prompt,
+      title: "pi failed",
+      body: makeNotificationBody(`${classification.category} error after ${attempts} attempt${attempts === 1 ? "" : "s"}: ${latest}`),
+      logs: errors.map((error, index) => `Attempt ${index + 1}: ${error}`).join("\n"),
+      outcome: "failed",
+      attempts,
+      category: classification.category,
+      suggestion: classification.suggestion,
+    };
+  }
+
+  return {
+    key: `${last?.id ?? "stopped"}:${prompt}:empty`,
+    prompt,
+    title: "pi stopped",
+    body: "Pi stopped without a final response",
+    logs: "Pi settled without assistant output or a reported error.",
+    outcome: "stopped",
+    attempts: assistants.length,
+    category: "unknown",
+    suggestion: "Inspect the session and retry",
+  };
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
@@ -169,9 +304,11 @@ export default function (pi: ExtensionAPI) {
   let currentPrompt = "";
   let lastAssistantFromEvent: { id?: string; message: AnyMessage } | undefined;
   let lastSentKey: string | undefined;
+  let inFlightKey: string | undefined;
 
   pi.on("before_agent_start", async (event) => {
     currentPrompt = typeof event.prompt === "string" ? event.prompt : contentToText(event.prompt);
+    lastAssistantFromEvent = undefined;
   });
 
   pi.on("message_end", async (event) => {
@@ -188,25 +325,9 @@ export default function (pi: ExtensionAPI) {
       }
 
       const entries = getContextEntries(ctx);
-      const assistantFromSession = findLastAssistantMessage(entries);
-      const assistant = assistantFromSession ?? lastAssistantFromEvent;
-      if (!assistant?.message || assistant.message.role !== "assistant") {
-        log(ctx, "No assistant message found; skip push notification", "warning");
-        return;
-      }
-
-      const logs = contentToText(assistant.message.content).trim();
-      if (!logs) {
-        log(ctx, "Assistant message is empty; skip push notification", "warning");
-        return;
-      }
-
-      const prompt = (
-        assistantFromSession ? findFirstUserPromptForTurn(entries, assistantFromSession.index) : undefined
-      ) ?? currentPrompt.trim();
-      const dedupeKey = `${assistant.id ?? "event"}:${prompt}:${logs.length}`;
-      if (dedupeKey === lastSentKey) return;
-      lastSentKey = dedupeKey;
+      const result = analyzeTurn(entries, lastAssistantFromEvent, currentPrompt);
+      if (result.key === lastSentKey || result.key === inFlightKey) return;
+      inFlightKey = result.key;
 
       const metadata = {
         source: "pi-extension",
@@ -216,17 +337,27 @@ export default function (pi: ExtensionAPI) {
       };
       const sessionFile = ctx.sessionManager?.getSessionFile?.() || process.env.PI_SESSION_FILE?.trim() || "";
       const context = [
-        `Command: pi -p ${prompt}`,
+        `Command: pi -p ${result.prompt}`,
+        `Outcome: ${result.outcome}`,
+        `Attempts: ${result.attempts}`,
+        result.category ? `Category: ${result.category}` : "",
+        result.suggestion ? `Suggested action: ${result.suggestion}` : "",
         `Directory: ${ctx.cwd}`,
         sessionFile ? `Session: ${sessionFile}` : "",
       ].filter(Boolean).join("\n");
-      const taskID = await postPush({
-        title: "pi completed",
-        body: makeNotificationBody(logs),
-        context,
-        logs,
-        ...metadata,
-      }, apiKey);
+      let taskID: string;
+      try {
+        taskID = await postPush({
+          title: result.title,
+          body: result.body,
+          context,
+          logs: result.logs,
+          ...metadata,
+        }, apiKey);
+        lastSentKey = result.key;
+      } finally {
+        if (inFlightKey === result.key) inFlightKey = undefined;
+      }
 
       const handoff: TaskHandoff = {
         task_id: taskID,
@@ -242,6 +373,7 @@ export default function (pi: ExtensionAPI) {
         logQuietly(`Push sent; local agent unavailable (${reason}), task queued`, "warning");
       }
     } catch (error) {
+      inFlightKey = undefined;
       const message = error instanceof Error ? error.message : String(error);
       log(ctx, `Failed to send push notification: ${message}`, "warning");
     }
