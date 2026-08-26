@@ -18,11 +18,23 @@ DOMAIN="tax.138-249-127-23.nip.io"
 
 cd "$PROJECT_DIR"
 
-# Ensure git repo is up to date (manual pull, no sudo)
-git pull || true
+# Refuse diverged or broken updates instead of deploying an unknown revision.
+git pull --ff-only origin main
 
-# Ensure data and keys directories exist
+# Ensure data and keys directories exist.
 mkdir -p "$DATA_DIR" "$KEYS_DIR"
+
+# Create a consistent online backup before the service can run a schema migration.
+DB_PATH="$DATA_DIR/tax.db"
+if [[ -f "$DB_PATH" ]]; then
+    BACKUP_PATH="$DATA_DIR/tax-pre-deploy-$(date +%Y%m%d%H%M%S).db"
+    sqlite3 "$DB_PATH" ".backup '$BACKUP_PATH'"
+    if [[ "$(sqlite3 "$DB_PATH" 'PRAGMA integrity_check;')" != "ok" ]]; then
+        echo "Database integrity check failed; deployment aborted." >&2
+        exit 1
+    fi
+    echo "Database backup: $BACKUP_PATH"
+fi
 
 # Create virtual environment and install dependencies
 if [ ! -d "$VENV_DIR" ]; then
@@ -93,6 +105,14 @@ else
     echo "Health check failed."
     exit 1
 fi
+
+ORCA_COLUMN_COUNT=$(sqlite3 "$DB_PATH" \
+    "SELECT count(*) FROM pragma_table_info('tasks') WHERE name IN ('orca_terminal_handle','orca_worktree_id','orca_tab_id','orca_pane_key');")
+if [[ "$ORCA_COLUMN_COUNT" != "4" ]]; then
+    echo "Orca schema verification failed: expected 4 routing columns, found $ORCA_COLUMN_COUNT." >&2
+    exit 1
+fi
+echo "Orca schema verification passed."
 
 # Show status. Use a unique file because a stale root-owned /tmp file may not be writable.
 # The allowed sudo command is exactly: /usr/bin/systemctl status tax

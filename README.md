@@ -73,17 +73,15 @@ tax run pi -p "выполни задачу"
 
 ## Backend
 
-Docker Compose:
+Production deploy с Mac выполняется одной командой:
 
 ```bash
-cd server
-cp .env.example .env
-# заполнить TAX_API_KEY и APNs credentials
-mkdir -p data keys
-docker compose up -d --build
+./scripts/deploy-backend.sh
 ```
 
-Caddy проксирует внешний адрес на backend. Эксплуатационные инструкции: [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+Скрипт подключается к `hermes@138.249.127.23`, обновляет `main`, создаёт backup SQLite, проверяет целостность БД, перезапускает systemd service, проверяет health и Orca schema. Host и каталог можно переопределить через `TAX_DEPLOY_HOST` и `TAX_DEPLOY_PROJECT_DIR`.
+
+Эксплуатационные инструкции: [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 ## Проверки
 
