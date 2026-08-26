@@ -6,6 +6,7 @@ import fcntl
 import json
 import logging
 import os
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -30,7 +31,6 @@ DEFAULT_POLL_TTL = 30 * 60
 DEFAULT_MAX_WORKERS = 16
 DEFAULT_IMPORT_INTERVAL = 5.0
 DEFAULT_REPLY_POLL_INTERVAL = 5.0
-DEFAULT_STATUS_RETRY_INTERVAL = 5.0
 DEFAULT_CLEANUP_INTERVAL = 24 * 60 * 60
 LEGACY_POLL_BATCH_SIZE = 20
 TERMINAL_RETENTION_DAYS = 7
@@ -51,11 +51,17 @@ def default_state_dir() -> Path:
 
 class WatchedTask(BaseModel):
     task_id: str
-    agterm_session_id: str = ""
-    agterm_socket: str = ""
+    orca_terminal_handle: str = ""
+    orca_worktree_id: str = ""
+    orca_tab_id: str = ""
+    orca_pane_key: str = ""
     source: str = ""
     agent: str = ""
     app: str = ""
+
+
+class OrcaDeliveryError(RuntimeError):
+    """A reply could not be delivered through the public Orca CLI."""
 
 
 class AgentStore:
@@ -75,8 +81,10 @@ class AgentStore:
                 """
                 CREATE TABLE IF NOT EXISTS watched_tasks (
                     task_id TEXT PRIMARY KEY,
-                    agterm_session_id TEXT,
-                    agterm_socket TEXT,
+                    orca_terminal_handle TEXT,
+                    orca_worktree_id TEXT,
+                    orca_tab_id TEXT,
+                    orca_pane_key TEXT,
                     source TEXT,
                     agent TEXT,
                     app TEXT,
@@ -90,8 +98,9 @@ class AgentStore:
                 """
             )
             columns = {row[1] for row in conn.execute("PRAGMA table_info(watched_tasks)")}
-            if "agterm_socket" not in columns:
-                conn.execute("ALTER TABLE watched_tasks ADD COLUMN agterm_socket TEXT")
+            for name in ("orca_terminal_handle", "orca_worktree_id", "orca_tab_id", "orca_pane_key"):
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE watched_tasks ADD COLUMN {name} TEXT")
 
     def add(self, task: WatchedTask) -> bool:
         now = now_iso()
@@ -99,13 +108,16 @@ class AgentStore:
             cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO watched_tasks
-                (task_id, agterm_session_id, agterm_socket, source, agent, app, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                (task_id, orca_terminal_handle, orca_worktree_id, orca_tab_id, orca_pane_key,
+                 source, agent, app, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
                 """,
                 (
                     task.task_id,
-                    task.agterm_session_id,
-                    task.agterm_socket,
+                    task.orca_terminal_handle,
+                    task.orca_worktree_id,
+                    task.orca_tab_id,
+                    task.orca_pane_key,
                     task.source,
                     task.agent,
                     task.app,
@@ -160,11 +172,14 @@ class AgentStore:
             conn.execute(
                 """
                 INSERT INTO watched_tasks
-                (task_id, agterm_session_id, agterm_socket, source, agent, app, status, reply, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'reply_received', ?, ?, ?)
+                (task_id, orca_terminal_handle, orca_worktree_id, orca_tab_id, orca_pane_key,
+                 source, agent, app, status, reply, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reply_received', ?, ?, ?)
                 ON CONFLICT(task_id) DO UPDATE SET
-                    agterm_session_id = excluded.agterm_session_id,
-                    agterm_socket = CASE WHEN excluded.agterm_socket != '' THEN excluded.agterm_socket ELSE watched_tasks.agterm_socket END,
+                    orca_terminal_handle = CASE WHEN excluded.orca_terminal_handle != '' THEN excluded.orca_terminal_handle ELSE watched_tasks.orca_terminal_handle END,
+                    orca_worktree_id = CASE WHEN excluded.orca_worktree_id != '' THEN excluded.orca_worktree_id ELSE watched_tasks.orca_worktree_id END,
+                    orca_tab_id = CASE WHEN excluded.orca_tab_id != '' THEN excluded.orca_tab_id ELSE watched_tasks.orca_tab_id END,
+                    orca_pane_key = CASE WHEN excluded.orca_pane_key != '' THEN excluded.orca_pane_key ELSE watched_tasks.orca_pane_key END,
                     source = excluded.source,
                     agent = excluded.agent,
                     app = excluded.app,
@@ -178,8 +193,10 @@ class AgentStore:
                 """,
                 (
                     task.task_id,
-                    task.agterm_session_id,
-                    task.agterm_socket,
+                    task.orca_terminal_handle,
+                    task.orca_worktree_id,
+                    task.orca_tab_id,
+                    task.orca_pane_key,
                     task.source,
                     task.agent,
                     task.app,
@@ -212,6 +229,13 @@ class AgentStore:
             conn.execute(
                 f"UPDATE watched_tasks SET {', '.join(assignments)} WHERE task_id = ?",
                 values,
+            )
+
+    def update_orca_handle(self, task_id: str, handle: str) -> None:
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "UPDATE watched_tasks SET orca_terminal_handle = ?, updated_at = ? WHERE task_id = ?",
+                (handle, now_iso(), task_id),
             )
 
 
@@ -248,15 +272,9 @@ class TaxAgent:
         poll_ttl: int = DEFAULT_POLL_TTL,
         retry_delay: float = 5.0,
         max_workers: int = DEFAULT_MAX_WORKERS,
-        device_token: str = "",
-        status_events: Optional[set[str]] = None,
-        agterm_socket: str = "",
     ):
         self.server = server.rstrip("/")
         self.api_key = api_key
-        self.device_token = device_token
-        self.status_events = status_events if status_events is not None else {"blocked"}
-        self.agterm_socket = agterm_socket
         self.state_dir = state_dir
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.store = AgentStore(self.state_dir / "agent.db")
@@ -268,10 +286,6 @@ class TaxAgent:
         self._watching_lock = threading.Lock()
         self._importer: Optional[threading.Thread] = None
         self._reply_poller: Optional[threading.Thread] = None
-        self._status_monitor: Optional[threading.Thread] = None
-        self._status_process: Optional[subprocess.Popen[str]] = None
-        self._status_process_lock = threading.Lock()
-        self._last_agent_status: dict[str, str] = {}
         self._fallback_offset = 0
         self._next_cleanup_at = time.monotonic() + DEFAULT_CLEANUP_INTERVAL
         self._legacy_poll_offset = 0
@@ -297,9 +311,6 @@ class TaxAgent:
         self._reply_poller = threading.Thread(target=self._reply_poll_loop, name="tax-reply-poller", daemon=True)
         self._importer.start()
         self._reply_poller.start()
-        if self.status_events:
-            self._status_monitor = threading.Thread(target=self._status_event_loop, name="tax-status-monitor", daemon=True)
-            self._status_monitor.start()
 
     def stop(self) -> None:
         with self._stop_lock:
@@ -307,9 +318,6 @@ class TaxAgent:
                 return
             self._stopped = True
             self.stop_event.set()
-            with self._status_process_lock:
-                if self._status_process is not None and self._status_process.poll() is None:
-                    self._status_process.terminate()
             self._executor.shutdown(wait=False, cancel_futures=True)
 
     def register(self, task: WatchedTask) -> bool:
@@ -354,9 +362,9 @@ class TaxAgent:
         row = self.store.get(task_id)
         if not row or self.stop_event.is_set():
             return
-        target = row["agterm_session_id"]
+        target = str(row["orca_terminal_handle"] or "")
         if not target:
-            error = "agterm session id is missing"
+            error = "Orca terminal handle is missing"
             self.store.update(task_id, "delivery_failed_pending_sync", error=error, increment_attempts=True)
             if self._mark_backend_status(task_id, "delivery_failed"):
                 self.store.update(task_id, "delivery_failed", error=error)
@@ -364,12 +372,8 @@ class TaxAgent:
             return
         try:
             self.store.update(task_id, "delivering", error=None)
-            socket = row["agterm_socket"] or ""
-            if socket:
-                self.inject_reply(reply, target, socket)
-            else:
-                self.inject_reply(reply, target)
-        except (OSError, subprocess.SubprocessError) as error:
+            delivered_to = self.inject_reply(reply, row)
+        except (OSError, subprocess.SubprocessError, OrcaDeliveryError, ValueError) as error:
             self.store.update(
                 task_id,
                 "delivery_failed_pending_sync",
@@ -379,166 +383,100 @@ class TaxAgent:
             if self._mark_backend_status(task_id, "delivery_failed"):
                 self.store.update(task_id, "delivery_failed", error=str(error))
             log_event(
-                logger, "delivery_failed", level=logging.ERROR, task_id=task_id, session_id=target, error=str(error)
+                logger, "delivery_failed", level=logging.ERROR, task_id=task_id, terminal_handle=target, error=str(error)
             )
             return
 
         self.store.update(task_id, "delivered_pending_sync", error=None)
         if self._mark_backend_status(task_id, "delivered"):
             self.store.update(task_id, "delivered", error=None)
-        log_event(logger, "reply_delivered", task_id=task_id, session_id=target)
-
-    def inject_reply(self, reply: str, target: str, socket: str = "") -> None:
-        executable = shutil.which("agtermctl")
-        if not executable:
-            raise FileNotFoundError("agtermctl not found in PATH")
-        command = [executable, "session", "type", "--target", target, "--stdin"]
-        if socket:
-            command.extend(["--socket", socket])
-        # The newline submits the reply after inserting it into the original session.
-        subprocess.run(
-            command,
-            input=f"{reply}\n",
-            text=True,
-            check=True,
-            capture_output=True,
-            timeout=15,
-        )
-
-    def _agterm_command(self, *arguments: str, socket: str = "") -> list[str]:
-        executable = shutil.which("agtermctl")
-        if not executable:
-            raise FileNotFoundError("agtermctl not found in PATH")
-        command = [executable, *arguments]
-        selected_socket = socket or self.agterm_socket
-        if selected_socket:
-            command.extend(["--socket", selected_socket])
-        return command
-
-    def _session_context(self, event: dict) -> tuple[str, str]:
-        window = str(event.get("window") or "")
-        session_id = str(event.get("session") or "")
-        if not window or not session_id:
-            return "", ""
-        result = subprocess.run(
-            self._agterm_command("tree", "--json", "--window", window),
-            text=True,
-            check=True,
-            capture_output=True,
-            timeout=10,
-        )
-        tree = json.loads(result.stdout).get("result", {}).get("tree", {})
-        for workspace in tree.get("workspaces", []):
-            for session in workspace.get("sessions", []):
-                if session.get("id") == session_id:
-                    cwd = str(session.get("cwd") or "")
-                    context = f"Workspace: {workspace.get('name', '')}"
-                    if cwd:
-                        context += f"\nDirectory: {cwd}"
-                    foreground = session.get("foreground") or []
-                    command = Path(str(foreground[0])).name if foreground else ""
-                    return context, command
-        return "", ""
+        log_event(logger, "reply_delivered", task_id=task_id, terminal_handle=delivered_to)
 
     @staticmethod
-    def _agent_from_command(command: str) -> str:
-        lowered = command.lower()
-        for agent in ("pi", "claude", "codex", "opencode", "kimi"):
-            if lowered == agent or lowered.startswith(f"{agent}-"):
-                return agent
-        return "agent"
+    def _orca_cli() -> list[str]:
+        override = os.environ.get("TAX_ORCA_CLI", "").strip() or os.environ.get("ORCA_CLI_COMMAND", "").strip()
+        if override:
+            command = shlex.split(override)
+            if command:
+                return command
+        executable = shutil.which("orca")
+        if not executable:
+            raise FileNotFoundError("orca CLI not found in PATH")
+        return [executable]
 
-    def handle_status_event(self, event: dict) -> bool:
-        if event.get("kind") != "status":
-            return False
-        session_id = str(event.get("session") or "").strip()
-        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
-        status = str(payload.get("status") or "").strip().lower()
-        if not session_id or not status:
-            return False
-        previous = self._last_agent_status.get(session_id)
-        self._last_agent_status[session_id] = status
-        if previous == status or status not in self.status_events:
-            return False
-
-        name = str(payload.get("name") or session_id)
-        try:
-            context, command = self._session_context(event)
-        except (OSError, subprocess.SubprocessError, ValueError) as error:
-            log_event(logger, "status_context_failed", level=logging.WARNING, session_id=session_id, error=str(error))
-            context, command = "", ""
-        agent_name = self._agent_from_command(command)
-        # Pi's extension sends a richer completed task with prompt and transcript.
-        # Keep generic completion for agents that do not have that integration.
-        if status == "completed" and agent_name == "pi":
-            return False
-        body = f"{name} requires attention" if status == "blocked" else f"{name} completed"
-        response = requests.post(
-            f"{self.server}/push",
-            json={
-                "device_token": self.device_token,
-                "title": f"{agent_name} {status}",
-                "body": body,
-                "context": context,
-                "logs": "",
-                "source": "agterm-status",
-                "agent": agent_name,
-                "app": "tax",
-                "agterm_session_id": session_id,
-            },
-            headers=self.headers,
+    def _run_orca(self, *arguments: str) -> dict:
+        result = subprocess.run(
+            [*self._orca_cli(), *arguments, "--json"],
+            text=True,
+            check=False,
+            capture_output=True,
             timeout=15,
         )
         try:
-            response.raise_for_status()
-            task_id = str(response.json().get("task_id") or "")
-            if not task_id:
-                raise ValueError("backend response does not contain task_id")
-            self.register(
-                WatchedTask(
-                    task_id=task_id,
-                    agterm_session_id=session_id,
-                    agterm_socket=self.agterm_socket,
-                    source="agterm-status",
-                    agent=agent_name,
-                    app="tax",
-                )
-            )
-            log_event(logger, "status_push_sent", task_id=task_id, session_id=session_id, status=status)
-            return True
-        finally:
-            response.close()
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+            raise OrcaDeliveryError(f"Orca CLI returned invalid JSON: {detail}") from error
+        if not isinstance(payload, dict):
+            raise OrcaDeliveryError("Orca CLI returned an invalid response")
+        return payload
 
-    def _status_event_loop(self) -> None:
-        while not self.stop_event.is_set():
-            process = None
-            try:
-                process = subprocess.Popen(
-                    self._agterm_command("events", "--json", "--kind", "status"),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
-                with self._status_process_lock:
-                    self._status_process = process
-                if process.stdout is None:
-                    raise RuntimeError("agterm event stream has no stdout")
-                for line in process.stdout:
-                    if self.stop_event.is_set():
-                        break
-                    try:
-                        self.handle_status_event(json.loads(line))
-                    except (requests.RequestException, ValueError) as error:
-                        log_event(logger, "status_event_failed", level=logging.WARNING, error=str(error))
-            except (OSError, subprocess.SubprocessError, RuntimeError) as error:
-                log_event(logger, "status_monitor_failed", level=logging.WARNING, error=str(error))
-            finally:
-                if process is not None and process.poll() is None:
-                    process.terminate()
-                with self._status_process_lock:
-                    if self._status_process is process:
-                        self._status_process = None
-            self.stop_event.wait(DEFAULT_STATUS_RETRY_INTERVAL)
+    @staticmethod
+    def _orca_error(payload: dict) -> tuple[str, str]:
+        error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+        return str(error.get("code") or "unknown_error"), str(error.get("message") or "Orca command failed")
+
+    def _send_to_orca(self, handle: str, reply: str) -> None:
+        payload = self._run_orca("terminal", "send", "--terminal", handle, "--text", reply, "--enter")
+        send = payload.get("result", {}).get("send", {}) if isinstance(payload.get("result"), dict) else {}
+        if payload.get("ok") is True and isinstance(send, dict) and send.get("accepted") is True:
+            return
+        code, message = self._orca_error(payload)
+        raise OrcaDeliveryError(f"{code}: {message}")
+
+    def _recover_orca_handle(self, row: sqlite3.Row) -> str:
+        worktree_id = str(row["orca_worktree_id"] or "")
+        tab_id = str(row["orca_tab_id"] or "")
+        pane_key = str(row["orca_pane_key"] or "")
+        pane_tab, separator, leaf_id = pane_key.partition(":")
+        if not tab_id:
+            tab_id = pane_tab
+        if not worktree_id or not tab_id or not separator or not leaf_id:
+            raise OrcaDeliveryError("stale terminal handle cannot be recovered: Orca routing metadata is incomplete")
+
+        payload = self._run_orca("terminal", "list", "--worktree", f"id:{worktree_id}")
+        if payload.get("ok") is not True:
+            code, message = self._orca_error(payload)
+            raise OrcaDeliveryError(f"cannot list Orca terminals ({code}): {message}")
+        result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+        terminals = result.get("terminals") if isinstance(result.get("terminals"), list) else []
+        matches = [
+            terminal
+            for terminal in terminals
+            if isinstance(terminal, dict)
+            and terminal.get("tabId") == tab_id
+            and terminal.get("leafId") == leaf_id
+            and terminal.get("writable") is True
+            and isinstance(terminal.get("handle"), str)
+        ]
+        if len(matches) != 1:
+            raise OrcaDeliveryError(f"stale terminal handle recovery found {len(matches)} writable matches")
+        return str(matches[0]["handle"])
+
+    def inject_reply(self, reply: str, row: sqlite3.Row) -> str:
+        handle = str(row["orca_terminal_handle"] or "")
+        try:
+            self._send_to_orca(handle, reply)
+            return handle
+        except OrcaDeliveryError as error:
+            code = str(error).split(":", 1)[0]
+            if code not in {"terminal_handle_stale", "terminal_not_found", "not_found"}:
+                raise
+
+        recovered = self._recover_orca_handle(row)
+        self._send_to_orca(recovered, reply)
+        self.store.update_orca_handle(str(row["task_id"]), recovered)
+        return recovered
 
     def _mark_backend_status(self, task_id: str, status: str) -> bool:
         response = None
@@ -616,8 +554,16 @@ class TaxAgent:
 
             task = WatchedTask(
                 task_id=task_id,
-                agterm_session_id=str(item.get("agterm_session_id") or ""),
-                agterm_socket=str(row["agterm_socket"] or "") if row else "",
+                orca_terminal_handle=(
+                    str(row["orca_terminal_handle"] or "") if row else str(item.get("orca_terminal_handle") or "")
+                ),
+                orca_worktree_id=(
+                    str(row["orca_worktree_id"] or "") if row else str(item.get("orca_worktree_id") or "")
+                ),
+                orca_tab_id=str(row["orca_tab_id"] or "") if row else str(item.get("orca_tab_id") or ""),
+                orca_pane_key=(
+                    str(row["orca_pane_key"] or "") if row else str(item.get("orca_pane_key") or "")
+                ),
                 source=str(item.get("source") or ""),
                 agent=str(item.get("agent") or ""),
                 app=str(item.get("app") or ""),
@@ -661,7 +607,10 @@ class TaxAgent:
                         {
                             "id": row["task_id"],
                             "reply": reply,
-                            "agterm_session_id": row["agterm_session_id"],
+                            "orca_terminal_handle": row["orca_terminal_handle"],
+                            "orca_worktree_id": row["orca_worktree_id"],
+                            "orca_tab_id": row["orca_tab_id"],
+                            "orca_pane_key": row["orca_pane_key"],
                             "source": row["source"],
                             "agent": row["agent"],
                             "app": row["app"],
@@ -786,9 +735,6 @@ def run_agent_server(
     port: int = DEFAULT_PORT,
     state_dir: Optional[Path] = None,
     poll_ttl: int = DEFAULT_POLL_TTL,
-    device_token: str = "",
-    status_events: Optional[set[str]] = None,
-    agterm_socket: str = "",
 ) -> int:
     if not api_key:
         log_event(logger, "startup_failed", level=logging.ERROR, reason="api_key_not_configured")
@@ -801,15 +747,7 @@ def run_agent_server(
 
     agent: Optional[TaxAgent] = None
     try:
-        agent = TaxAgent(
-            server,
-            api_key,
-            resolved_state_dir,
-            poll_ttl=poll_ttl,
-            device_token=device_token,
-            status_events=status_events,
-            agterm_socket=agterm_socket,
-        )
+        agent = TaxAgent(server, api_key, resolved_state_dir, poll_ttl=poll_ttl)
         agent.start()
         server_holder: dict[str, uvicorn.Server] = {}
 

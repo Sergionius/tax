@@ -11,7 +11,7 @@ from tax.agent import AgentInstanceLock, AgentStore, TaxAgent, WatchedTask, crea
 
 
 def make_agent(tmp_path: Path) -> TaxAgent:
-    return TaxAgent("https://tax.example", "secret", tmp_path, retry_delay=0.01, status_events=set())
+    return TaxAgent("https://tax.example", "secret", tmp_path, retry_delay=0.01)
 
 
 def test_store_closes_every_database_connection(monkeypatch, tmp_path):
@@ -55,12 +55,12 @@ def test_store_deduplicates_tasks(monkeypatch, tmp_path):
     agent = make_agent(tmp_path)
     watched = []
     monkeypatch.setattr(agent, "watch", watched.append)
-    task = WatchedTask(task_id="task-1", agterm_session_id="session-1", app="tax")
+    task = WatchedTask(task_id="task-1", orca_terminal_handle="session-1", app="tax")
 
     assert agent.register(task) is True
     assert agent.register(task) is False
     assert watched == []
-    assert agent.store.get("task-1")["agterm_session_id"] == "session-1"
+    assert agent.store.get("task-1")["orca_terminal_handle"] == "session-1"
     agent.stop()
 
 
@@ -83,7 +83,7 @@ def test_imports_jsonl_fallback(monkeypatch, tmp_path):
     agent = make_agent(tmp_path)
     monkeypatch.setattr(agent, "watch", lambda _task_id: None)
     agent.fallback_path.write_text(
-        json.dumps({"task_id": "task-1", "agterm_session_id": "session-1", "app": "tax"}) + "\n",
+        json.dumps({"task_id": "task-1", "orca_terminal_handle": "session-1", "app": "tax"}) + "\n",
         encoding="utf-8",
     )
 
@@ -196,93 +196,75 @@ def test_instance_lock_is_exclusive(tmp_path):
     second.release()
 
 
-def test_inject_reply_uses_target_stdin_and_newline(monkeypatch, tmp_path):
+def test_inject_reply_uses_explicit_orca_handle(monkeypatch, tmp_path):
     agent = make_agent(tmp_path)
-    run = Mock()
-    monkeypatch.setattr("tax.agent.shutil.which", lambda _name: "/usr/local/bin/agtermctl")
+    agent.store.add(WatchedTask(task_id="task-1", orca_terminal_handle="term-123"))
+    row = agent.store.get("task-1")
+    payload = {"ok": True, "result": {"send": {"accepted": True, "bytesWritten": 9}}}
+    run = Mock(return_value=Mock(returncode=0, stdout=json.dumps(payload), stderr=""))
+    monkeypatch.setattr("tax.agent.shutil.which", lambda _name: "/usr/local/bin/orca")
     monkeypatch.setattr("tax.agent.subprocess.run", run)
 
-    agent.inject_reply("continue", "session-123")
+    assert agent.inject_reply("continue", row) == "term-123"
 
-    args, kwargs = run.call_args
-    assert args[0] == [
-        "/usr/local/bin/agtermctl",
-        "session",
-        "type",
-        "--target",
-        "session-123",
-        "--stdin",
+    assert run.call_args.args[0] == [
+        "/usr/local/bin/orca",
+        "terminal",
+        "send",
+        "--terminal",
+        "term-123",
+        "--text",
+        "continue",
+        "--enter",
+        "--json",
     ]
-    assert kwargs["input"] == "continue\n"
-    assert kwargs["check"] is True
+    assert run.call_args.kwargs["check"] is False
     agent.stop()
 
 
-def test_inject_reply_uses_origin_socket(monkeypatch, tmp_path):
+def test_inject_reply_recovers_stale_handle_by_tab_and_leaf(monkeypatch, tmp_path):
     agent = make_agent(tmp_path)
-    run = Mock()
-    monkeypatch.setattr("tax.agent.shutil.which", lambda _name: "/usr/local/bin/agtermctl")
-    monkeypatch.setattr("tax.agent.subprocess.run", run)
+    agent.store.add(
+        WatchedTask(
+            task_id="task-1",
+            orca_terminal_handle="term-old",
+            orca_worktree_id="repo::/tmp/worktree",
+            orca_tab_id="tab-1",
+            orca_pane_key="tab-1:leaf-1",
+        )
+    )
+    stale = {"ok": False, "error": {"code": "terminal_handle_stale", "message": "stale"}}
+    listed = {
+        "ok": True,
+        "result": {
+            "terminals": [
+                {"handle": "term-new", "tabId": "tab-1", "leafId": "leaf-1", "writable": True}
+            ]
+        },
+    }
+    sent = {"ok": True, "result": {"send": {"accepted": True}}}
+    responses = iter([stale, listed, sent])
+    monkeypatch.setattr(agent, "_run_orca", lambda *_args: next(responses))
 
-    agent.inject_reply("continue", "session-123", "/tmp/agterm.sock")
-
-    assert run.call_args.args[0][-2:] == ["--socket", "/tmp/agterm.sock"]
+    assert agent.inject_reply("continue", agent.store.get("task-1")) == "term-new"
+    assert agent.store.get("task-1")["orca_terminal_handle"] == "term-new"
     agent.stop()
 
 
-def test_backend_reply_preserves_local_origin_socket(monkeypatch, tmp_path):
+def test_backend_reply_preserves_local_orca_routing(monkeypatch, tmp_path):
     agent = make_agent(tmp_path)
-    agent.store.add(WatchedTask(task_id="task-1", agterm_session_id="session-1", agterm_socket="/tmp/a.sock"))
+    agent.store.add(
+        WatchedTask(task_id="task-1", orca_terminal_handle="term-local", orca_pane_key="tab:leaf")
+    )
     monkeypatch.setattr(agent, "watch", lambda _task_id: None)
 
     assert agent._schedule_backend_tasks(
-        [{"id": "task-1", "reply": "continue", "agterm_session_id": "session-1"}]
+        [{"id": "task-1", "reply": "continue", "orca_terminal_handle": "term-backend"}]
     ) == 1
 
-    assert agent.store.get("task-1")["agterm_socket"] == "/tmp/a.sock"
-    agent.stop()
-
-
-def test_blocked_status_creates_replyable_task_and_deduplicates(monkeypatch, tmp_path):
-    agent = TaxAgent(
-        "https://tax.example",
-        "secret",
-        tmp_path,
-        status_events={"blocked"},
-        agterm_socket="/tmp/agterm.sock",
-    )
-    response = Mock()
-    response.raise_for_status.return_value = None
-    response.json.return_value = {"task_id": "status-task"}
-    post = Mock(return_value=response)
-    monkeypatch.setattr("tax.agent.requests.post", post)
-    monkeypatch.setattr(agent, "_session_context", lambda _event: ("Workspace: tax", "pi"))
-    event = {
-        "kind": "status",
-        "session": "session-1",
-        "window": "window-1",
-        "payload": {"status": "blocked", "name": "pi tax"},
-    }
-
-    assert agent.handle_status_event(event) is True
-    assert agent.handle_status_event(event) is False
-    row = agent.store.get("status-task")
-    assert row["agterm_socket"] == "/tmp/agterm.sock"
-    assert row["agent"] == "pi"
-    assert post.call_args.kwargs["json"]["source"] == "agterm-status"
-    agent.stop()
-
-
-def test_completed_status_is_opt_in(monkeypatch, tmp_path):
-    agent = make_agent(tmp_path)
-    post = Mock()
-    monkeypatch.setattr("tax.agent.requests.post", post)
-
-    assert agent.handle_status_event(
-        {"kind": "status", "session": "session-1", "payload": {"status": "completed"}}
-    ) is False
-
-    post.assert_not_called()
+    row = agent.store.get("task-1")
+    assert row["orca_terminal_handle"] == "term-local"
+    assert row["orca_pane_key"] == "tab:leaf"
     agent.stop()
 
 
@@ -296,7 +278,7 @@ def test_poll_reply_delivers_and_marks_backend(monkeypatch, tmp_path):
             {
                 "id": "task-1",
                 "reply": "ship it",
-                "agterm_session_id": "session-1",
+                "orca_terminal_handle": "session-1",
                 "source": "pi-extension",
                 "agent": "pi",
                 "app": "tax",
@@ -310,7 +292,11 @@ def test_poll_reply_delivers_and_marks_backend(monkeypatch, tmp_path):
 
     monkeypatch.setattr("tax.agent.requests.get", lambda *args, **kwargs: get_response)
     monkeypatch.setattr("tax.agent.requests.post", lambda *args, **kwargs: post_response)
-    monkeypatch.setattr(agent, "inject_reply", lambda reply, target: injected.append((reply, target)))
+    monkeypatch.setattr(
+        agent,
+        "inject_reply",
+        lambda reply, row: injected.append((reply, row["orca_terminal_handle"])) or row["orca_terminal_handle"],
+    )
     monkeypatch.setattr(agent, "watch", agent._watch_task)
 
     assert agent.poll_backend_replies() == 1
@@ -326,7 +312,7 @@ def test_poll_reply_delivers_and_marks_backend(monkeypatch, tmp_path):
 
 def test_legacy_backend_fallback_polls_saved_tasks(monkeypatch, tmp_path):
     agent = make_agent(tmp_path)
-    agent.store.add(WatchedTask(task_id="task-1", agterm_session_id="session-1"))
+    agent.store.add(WatchedTask(task_id="task-1", orca_terminal_handle="session-1"))
     not_found = Mock(status_code=404)
     reply_response = Mock(status_code=200)
     reply_response.raise_for_status.return_value = None
@@ -335,16 +321,20 @@ def test_legacy_backend_fallback_polls_saved_tasks(monkeypatch, tmp_path):
     post_response.raise_for_status.return_value = None
     post_response.json.return_value = {"ok": True}
     responses = iter([not_found, reply_response])
-    inject = Mock()
+    injected = []
     monkeypatch.setattr("tax.agent.requests.get", lambda *args, **kwargs: next(responses))
     monkeypatch.setattr("tax.agent.requests.post", lambda *args, **kwargs: post_response)
-    monkeypatch.setattr(agent, "inject_reply", inject)
+    monkeypatch.setattr(
+        agent,
+        "inject_reply",
+        lambda reply, row: injected.append((reply, row["orca_terminal_handle"])) or row["orca_terminal_handle"],
+    )
     monkeypatch.setattr(agent, "watch", agent._watch_task)
 
     assert agent.poll_backend_replies() == 1
 
     assert agent.store.get("task-1")["status"] == "delivered"
-    inject.assert_called_once_with("continue", "session-1")
+    assert injected == [("continue", "session-1")]
     not_found.close.assert_called_once()
     reply_response.close.assert_called_once()
     agent.stop()
@@ -352,7 +342,7 @@ def test_legacy_backend_fallback_polls_saved_tasks(monkeypatch, tmp_path):
 
 def test_replies_endpoint_is_rechecked_after_legacy_fallback(monkeypatch, tmp_path):
     agent = make_agent(tmp_path)
-    agent.store.add(WatchedTask(task_id="legacy-task", agterm_session_id="session-1"))
+    agent.store.add(WatchedTask(task_id="legacy-task", orca_terminal_handle="session-1"))
     not_found = Mock(status_code=404)
     empty_legacy = Mock(status_code=200)
     empty_legacy.raise_for_status.return_value = None
@@ -360,7 +350,7 @@ def test_replies_endpoint_is_rechecked_after_legacy_fallback(monkeypatch, tmp_pa
     modern = Mock(status_code=200)
     modern.raise_for_status.return_value = None
     modern.json.return_value = {
-        "tasks": [{"id": "new-task", "reply": "continue", "agterm_session_id": "session-2"}]
+        "tasks": [{"id": "new-task", "reply": "continue", "orca_terminal_handle": "session-2"}]
     }
     responses = iter([not_found, empty_legacy, modern])
     monkeypatch.setattr("tax.agent.requests.get", lambda *args, **kwargs: next(responses))
@@ -384,7 +374,7 @@ def test_stale_backend_reply_is_expired_without_delivery(monkeypatch, tmp_path):
             {
                 "id": "stale-reply",
                 "reply": "too late",
-                "agterm_session_id": "session-1",
+                "orca_terminal_handle": "session-1",
                 "updated_at": old_timestamp,
             }
         ]
@@ -408,7 +398,7 @@ def test_missing_session_is_failed_without_using_active(monkeypatch, tmp_path):
     row = agent.store.get("task-1")
     assert row["status"] == "delivery_failed"
     assert row["attempts"] == 1
-    assert row["last_error"] == "agterm session id is missing"
+    assert row["last_error"] == "Orca terminal handle is missing"
     inject.assert_not_called()
     agent.stop()
 
@@ -431,12 +421,12 @@ def test_pending_tasks_expire_after_poll_ttl(tmp_path):
 
 def test_closed_session_is_marked_failed_without_retry(monkeypatch, tmp_path):
     agent = make_agent(tmp_path)
-    task = WatchedTask(task_id="task-1", agterm_session_id="closed-session")
+    task = WatchedTask(task_id="task-1", orca_terminal_handle="closed-session")
     agent.store.record_reply(task, "continue")
     post_response = Mock()
     post_response.raise_for_status.return_value = None
     post_response.json.return_value = {"ok": True}
-    inject = Mock(side_effect=subprocess.CalledProcessError(1, ["agtermctl"]))
+    inject = Mock(side_effect=subprocess.CalledProcessError(1, ["orca"]))
     monkeypatch.setattr("tax.agent.requests.post", lambda *args, **kwargs: post_response)
     monkeypatch.setattr(agent, "inject_reply", inject)
 
@@ -445,17 +435,23 @@ def test_closed_session_is_marked_failed_without_retry(monkeypatch, tmp_path):
     row = agent.store.get("task-1")
     assert row["status"] == "delivery_failed"
     assert row["attempts"] == 1
-    inject.assert_called_once_with("continue", "closed-session")
+    assert inject.call_count == 1
+    assert inject.call_args.args[0] == "continue"
+    assert inject.call_args.args[1]["orca_terminal_handle"] == "closed-session"
     assert post_response.json.call_count == 1
     agent.stop()
 
 
 def test_backend_sync_failure_never_reinjects_reply(monkeypatch, tmp_path):
     agent = make_agent(tmp_path)
-    task = WatchedTask(task_id="task-1", agterm_session_id="session-1")
+    task = WatchedTask(task_id="task-1", orca_terminal_handle="session-1")
     agent.store.record_reply(task, "continue")
-    inject = Mock()
-    monkeypatch.setattr(agent, "inject_reply", inject)
+    injected = []
+    monkeypatch.setattr(
+        agent,
+        "inject_reply",
+        lambda reply, row: injected.append((reply, row["orca_terminal_handle"])) or row["orca_terminal_handle"],
+    )
     monkeypatch.setattr(agent, "_mark_backend_status", Mock(side_effect=[False, True]))
 
     agent._watch_task("task-1")
@@ -464,7 +460,7 @@ def test_backend_sync_failure_never_reinjects_reply(monkeypatch, tmp_path):
     agent._sync_local_terminal_status(agent.store.get("task-1"))
 
     assert agent.store.get("task-1")["status"] == "delivered"
-    inject.assert_called_once_with("continue", "session-1")
+    assert injected == [("continue", "session-1")]
     agent.stop()
 
 
@@ -491,8 +487,8 @@ def test_local_api_health_task_and_shutdown(monkeypatch, tmp_path):
 
     with TestClient(app) as client:
         assert client.get("/health").json()["ok"] is True
-        created = client.post("/task", json={"task_id": "task-1", "agterm_session_id": "session-1"})
-        duplicate = client.post("/task", json={"task_id": "task-1", "agterm_session_id": "session-1"})
+        created = client.post("/task", json={"task_id": "task-1", "orca_terminal_handle": "term-1"})
+        duplicate = client.post("/task", json={"task_id": "task-1", "orca_terminal_handle": "term-1"})
         assert created.json()["created"] is True
         assert duplicate.json()["created"] is False
         assert client.post("/shutdown").json() == {"ok": True}

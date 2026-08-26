@@ -11,7 +11,7 @@ This file provides guidance to AI agents building the iOS SwiftUI app for the `t
   2. Backend stores the task and sends a push to the iPhone.
   3. iPhone receives the push, user opens the app, sees task details, and can reply.
   4. iPhone sends the reply to `POST /task/{id}/reply`.
-  5. Mac CLI polls `GET /task/{id}/reply?wait=true` and feeds the reply back into `agterm` via `agtermctl`.
+  5. Mac agent polls the backend and sends the reply to the original Orca terminal via `orca terminal send`.
 
 ## Tech stack
 
@@ -172,7 +172,7 @@ tax/ios/
    ```
 2. iPhone should receive a push.
 3. Tap the push or open the app; send a reply.
-4. Mac CLI should receive the reply and feed it to `agterm`.
+4. Mac agent should receive the reply and feed it to the original Orca terminal.
 
 ## Common pitfalls
 

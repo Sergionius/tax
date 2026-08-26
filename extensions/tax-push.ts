@@ -38,8 +38,10 @@ type SessionMessageEntry = {
 
 type TaskHandoff = {
   task_id: string;
-  agterm_session_id: string;
-  agterm_socket: string;
+  orca_terminal_handle: string;
+  orca_worktree_id: string;
+  orca_tab_id: string;
+  orca_pane_key: string;
   source: string;
   agent: string;
   app: string;
@@ -324,6 +326,12 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      const orcaTerminalHandle = process.env.ORCA_TERMINAL_HANDLE?.trim() || "";
+      if (!orcaTerminalHandle) {
+        log(ctx, "ORCA_TERMINAL_HANDLE is not set; skip replyable notification", "warning");
+        return;
+      }
+
       const entries = getContextEntries(ctx);
       const result = analyzeTurn(entries, lastAssistantFromEvent, currentPrompt);
       if (result.key === lastSentKey || result.key === inFlightKey) return;
@@ -333,7 +341,10 @@ export default function (pi: ExtensionAPI) {
         source: "pi-extension",
         agent: "pi",
         app: "tax",
-        agterm_session_id: process.env.AGTERM_SESSION_ID?.trim() || "",
+        orca_terminal_handle: orcaTerminalHandle,
+        orca_worktree_id: process.env.ORCA_WORKTREE_ID?.trim() || process.env.ORCA_WORKSPACE_ID?.trim() || "",
+        orca_tab_id: process.env.ORCA_TAB_ID?.trim() || "",
+        orca_pane_key: process.env.ORCA_PANE_KEY?.trim() || "",
       };
       const sessionFile = ctx.sessionManager?.getSessionFile?.() || process.env.PI_SESSION_FILE?.trim() || "";
       const context = [
@@ -361,7 +372,6 @@ export default function (pi: ExtensionAPI) {
 
       const handoff: TaskHandoff = {
         task_id: taskID,
-        agterm_socket: process.env.AGTERM_SOCKET?.trim() || "",
         ...metadata,
       };
       try {

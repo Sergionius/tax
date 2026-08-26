@@ -100,7 +100,10 @@ class PushPayload(BaseModel):
     source: Optional[str] = ""
     agent: Optional[str] = ""
     app: Optional[str] = ""
-    agterm_session_id: Optional[str] = ""
+    orca_terminal_handle: Optional[str] = ""
+    orca_worktree_id: Optional[str] = ""
+    orca_tab_id: Optional[str] = ""
+    orca_pane_key: Optional[str] = ""
 
 
 class TaskUpdate(BaseModel):
@@ -210,7 +213,7 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
         source=payload.source,
         agent=payload.agent,
         app=payload.app,
-        session_id=payload.agterm_session_id,
+        terminal_handle=payload.orca_terminal_handle,
         push_mode=mode,
     )
 
@@ -218,8 +221,9 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     try:
         conn.execute(
             "INSERT INTO tasks "
-            "(id, device_token, title, body, status, context, logs, source, agent, app, agterm_session_id, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(id, device_token, title, body, status, context, logs, source, agent, app, "
+            "orca_terminal_handle, orca_worktree_id, orca_tab_id, orca_pane_key, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 task_id,
                 device_token or "",
@@ -231,7 +235,10 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
                 payload.source,
                 payload.agent,
                 payload.app,
-                payload.agterm_session_id,
+                payload.orca_terminal_handle,
+                payload.orca_worktree_id,
+                payload.orca_tab_id,
+                payload.orca_pane_key,
                 created_at,
                 created_at,
             ),
@@ -367,7 +374,8 @@ async def list_pending_replies(limit: int = Query(default=500, ge=1, le=500)):
     conn = db_conn()
     expire_stale_tasks(conn)
     rows = conn.execute(
-        "SELECT id, reply, agterm_session_id, source, agent, app, updated_at "
+        "SELECT id, reply, orca_terminal_handle, orca_worktree_id, orca_tab_id, orca_pane_key, "
+        "source, agent, app, updated_at "
         "FROM tasks WHERE status = 'replied' AND reply IS NOT NULL "
         "ORDER BY updated_at LIMIT ?",
         (limit,),

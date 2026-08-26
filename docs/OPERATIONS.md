@@ -4,6 +4,14 @@
 
 `pending → replied → delivered` is the successful path. `delivery_failed` is terminal. The Mac agent may temporarily keep `delivered_pending_sync` or `delivery_failed_pending_sync` while the backend is unavailable; these states prevent duplicate text injection.
 
+## Orca delivery failures
+
+1. Run `orca status --json` and confirm the runtime is reachable and ready.
+2. Run `orca terminal list --json` and verify the saved terminal is writable.
+3. Run `tax doctor` and inspect `~/.local/state/tax/logs/agent-error.log`.
+4. Never resend to the active terminal. A stale handle is recoverable only by an exact saved tab/leaf match.
+5. After an unknown or timed-out send result, do not inject manually without first inspecting local task state; this prevents duplicate prompts.
+
 ## Backend outage
 
 1. Check `GET /health` with the bearer credential.

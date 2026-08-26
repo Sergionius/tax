@@ -38,7 +38,7 @@ def push(client: TestClient, token: str, app_name: str = "tax"):
             "source": "pi-extension",
             "agent": "pi",
             "app": app_name,
-            "agterm_session_id": "session-123",
+            "orca_terminal_handle": "session-123",
         },
     )
 
@@ -61,7 +61,15 @@ def test_migrates_existing_database(monkeypatch, tmp_path):
     task_columns = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
     token_columns = {row[1] for row in conn.execute("PRAGMA table_info(device_tokens)")}
     conn.close()
-    assert {"source", "agent", "app", "agterm_session_id"} <= task_columns
+    assert {
+        "source",
+        "agent",
+        "app",
+        "orca_terminal_handle",
+        "orca_worktree_id",
+        "orca_tab_id",
+        "orca_pane_key",
+    } <= task_columns
     assert "preferences" in token_columns
 
 
@@ -118,7 +126,7 @@ def test_push_stores_metadata_and_reply_flow(monkeypatch, tmp_path):
         assert task["source"] == "pi-extension"
         assert task["agent"] == "pi"
         assert task["app"] == "tax"
-        assert task["agterm_session_id"] == "session-123"
+        assert task["orca_terminal_handle"] == "session-123"
 
         response = client.post(f"/task/{task_id}/reply", headers=AUTH, json={"text": "continue"})
         assert response.status_code == 200
@@ -130,7 +138,10 @@ def test_push_stores_metadata_and_reply_flow(monkeypatch, tmp_path):
             {
                 "id": task_id,
                 "reply": "continue",
-                "agterm_session_id": "session-123",
+                "orca_terminal_handle": "session-123",
+                "orca_worktree_id": "",
+                "orca_tab_id": "",
+                "orca_pane_key": "",
                 "source": "pi-extension",
                 "agent": "pi",
                 "app": "tax",

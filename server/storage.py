@@ -38,7 +38,10 @@ def initialize(path: str) -> None:
                 source TEXT,
                 agent TEXT,
                 app TEXT,
-                agterm_session_id TEXT,
+                orca_terminal_handle TEXT,
+                orca_worktree_id TEXT,
+                orca_tab_id TEXT,
+                orca_pane_key TEXT,
                 created_at TEXT,
                 updated_at TEXT
             )
@@ -54,7 +57,15 @@ def initialize(path: str) -> None:
         _add_missing_columns(
             conn,
             "tasks",
-            {"source": "TEXT", "agent": "TEXT", "app": "TEXT", "agterm_session_id": "TEXT"},
+            {
+                "source": "TEXT",
+                "agent": "TEXT",
+                "app": "TEXT",
+                "orca_terminal_handle": "TEXT",
+                "orca_worktree_id": "TEXT",
+                "orca_tab_id": "TEXT",
+                "orca_pane_key": "TEXT",
+            },
         )
         _add_missing_columns(conn, "device_tokens", {"preferences": "TEXT"})
         conn.commit()

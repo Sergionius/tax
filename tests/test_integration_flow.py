@@ -29,7 +29,7 @@ def test_backend_reply_is_delivered_once_and_acknowledged(monkeypatch, tmp_path:
                 "source": "pi-extension",
                 "agent": "pi",
                 "app": "tax",
-                "agterm_session_id": "session-123",
+                "orca_terminal_handle": "session-123",
             },
         ).json()
         task_id = created["task_id"]
@@ -49,7 +49,12 @@ def test_backend_reply_is_delivered_once_and_acknowledged(monkeypatch, tmp_path:
         monkeypatch.setattr("tax.agent.requests.post", lambda url, **kwargs: request("POST", url, **kwargs))
 
         agent = TaxAgent("https://tax.example", "test-key", tmp_path / "agent")
-        monkeypatch.setattr(agent, "inject_reply", lambda reply, target: delivered.append((reply, target)))
+        monkeypatch.setattr(
+            agent,
+            "inject_reply",
+            lambda reply, row: delivered.append((reply, row["orca_terminal_handle"]))
+            or row["orca_terminal_handle"],
+        )
         monkeypatch.setattr(agent, "watch", agent._watch_task)
 
         assert agent.poll_backend_replies() == 1

@@ -42,18 +42,30 @@ def test_invalid_config_is_reported_without_traceback(monkeypatch, tmp_path, cap
     assert "invalid tax config" in capsys.readouterr().err
 
 
-def test_send_to_agterm_uses_stdin_and_newline(monkeypatch):
-    run = Mock()
-    monkeypatch.setattr(cli.shutil, "which", lambda _name: "/tmp/agtermctl")
+def test_send_to_orca_uses_explicit_handle_and_enter(monkeypatch):
+    payload = {"ok": True, "result": {"send": {"accepted": True}}}
+    run = Mock(return_value=Mock(stdout=json.dumps(payload), stderr=""))
+    monkeypatch.setattr(cli.shutil, "which", lambda _name: "/tmp/orca")
     monkeypatch.setattr(cli.subprocess, "run", run)
 
-    cli.send_to_agterm("continue", "session-1")
+    assert cli.send_to_orca("continue", "term-1") is True
 
     run.assert_called_once_with(
-        ["/tmp/agtermctl", "session", "type", "--target", "session-1", "--stdin"],
-        input="continue\n",
+        [
+            "/tmp/orca",
+            "terminal",
+            "send",
+            "--terminal",
+            "term-1",
+            "--text",
+            "continue",
+            "--enter",
+            "--json",
+        ],
         text=True,
         check=False,
+        capture_output=True,
+        timeout=15,
     )
 
 
