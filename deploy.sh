@@ -28,11 +28,17 @@ mkdir -p "$DATA_DIR" "$KEYS_DIR"
 DB_PATH="$DATA_DIR/tax.db"
 if [[ -f "$DB_PATH" ]]; then
     BACKUP_PATH="$DATA_DIR/tax-pre-deploy-$(date +%Y%m%d%H%M%S).db"
-    sqlite3 "$DB_PATH" ".backup '$BACKUP_PATH'"
-    if [[ "$(sqlite3 "$DB_PATH" 'PRAGMA integrity_check;')" != "ok" ]]; then
-        echo "Database integrity check failed; deployment aborted." >&2
-        exit 1
-    fi
+    python3 - "$DB_PATH" "$BACKUP_PATH" <<'PY'
+import sqlite3
+import sys
+
+source_path, backup_path = sys.argv[1:]
+with sqlite3.connect(source_path) as source, sqlite3.connect(backup_path) as backup:
+    source.backup(backup)
+    result = source.execute("PRAGMA integrity_check").fetchone()[0]
+if result != "ok":
+    raise SystemExit(f"Database integrity check failed: {result}")
+PY
     echo "Database backup: $BACKUP_PATH"
 fi
 
@@ -106,8 +112,16 @@ else
     exit 1
 fi
 
-ORCA_COLUMN_COUNT=$(sqlite3 "$DB_PATH" \
-    "SELECT count(*) FROM pragma_table_info('tasks') WHERE name IN ('orca_terminal_handle','orca_worktree_id','orca_tab_id','orca_pane_key');")
+ORCA_COLUMN_COUNT=$(python3 - "$DB_PATH" <<'PY'
+import sqlite3
+import sys
+
+with sqlite3.connect(sys.argv[1]) as connection:
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(tasks)")}
+expected = {"orca_terminal_handle", "orca_worktree_id", "orca_tab_id", "orca_pane_key"}
+print(len(columns & expected))
+PY
+)
 if [[ "$ORCA_COLUMN_COUNT" != "4" ]]; then
     echo "Orca schema verification failed: expected 4 routing columns, found $ORCA_COLUMN_COUNT." >&2
     exit 1
