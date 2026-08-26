@@ -337,6 +337,57 @@ def cmd_recap(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_push_doctor(args: argparse.Namespace) -> int:
+    config = load_config()
+    server = get_server(config).rstrip("/")
+    api_key = get_api_key(config)
+    if not api_key:
+        print("✗ API key: missing", file=sys.stderr)
+        return 1
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        response = requests.post(f"{server}/diagnostics/push-test", headers=headers, timeout=15)
+        response.raise_for_status()
+        created = response.json()
+        task_id = str(created.get("task_id") or "")
+        if not task_id:
+            raise ValueError("backend did not return a diagnostic task id")
+        print(f"✓ Backend: {server}")
+        print(f"{'✓' if created.get('device_registered') else '✗'} Device registration: "
+              f"{'present' if created.get('device_registered') else 'missing'}")
+        print(f"✓ APNs environment: {created.get('environment', 'unknown')}")
+        print(f"✓ Diagnostic task: {task_id}")
+
+        diagnostic = {}
+        deadline = time.monotonic() + max(1, args.timeout)
+        while time.monotonic() < deadline:
+            status_response = requests.get(
+                f"{server}/diagnostics/push/{task_id}", headers=headers, timeout=10
+            )
+            status_response.raise_for_status()
+            diagnostic = status_response.json().get("diagnostic", {})
+            if diagnostic.get("push_status") not in {None, "", "queued"}:
+                break
+            time.sleep(0.5)
+    except (requests.RequestException, ValueError) as error:
+        print(f"✗ Push diagnostic failed: {error}", file=sys.stderr)
+        return 1
+
+    push_status = diagnostic.get("push_status", "unknown")
+    accepted = push_status == "sent" and diagnostic.get("apns_status_code") == 200
+    print(f"{'✓' if accepted else '✗'} APNs result: {push_status}")
+    if diagnostic.get("apns_status_code") is not None:
+        print(f"  HTTP status: {diagnostic['apns_status_code']}")
+    if diagnostic.get("apns_reason"):
+        print(f"  Reason: {diagnostic['apns_reason']}")
+    if diagnostic.get("apns_id"):
+        print(f"  APNs ID: {diagnostic['apns_id']}")
+    if accepted:
+        print("? Apple accepted the push; banner display cannot be confirmed without iOS telemetry.")
+        print("  If it is not visible, check iOS notification permissions, Focus, and Scheduled Summary.")
+    return 0 if accepted else 1
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     config = load_config()
     server = get_server(config)
@@ -402,6 +453,11 @@ def main() -> int:
     p_recap.add_argument("--turns", type=int, default=4, help="Number of recent turns")
     p_recap.add_argument("--max-chars", type=int, default=240, help="Maximum characters per message")
     p_recap.set_defaults(func=cmd_recap)
+
+    # push-doctor
+    p_push_doctor = subparsers.add_parser("push-doctor", help="Test backend-to-APNs push delivery")
+    p_push_doctor.add_argument("--timeout", type=int, default=15, help="Seconds to wait for the APNs result")
+    p_push_doctor.set_defaults(func=cmd_push_doctor)
 
     # status
     p_status = subparsers.add_parser("status", help="List recent tasks on backend")

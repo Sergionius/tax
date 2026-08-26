@@ -118,15 +118,18 @@ import sys
 
 with sqlite3.connect(sys.argv[1]) as connection:
     columns = {row[1] for row in connection.execute("PRAGMA table_info(tasks)")}
-expected = {"orca_terminal_handle", "orca_worktree_id", "orca_tab_id", "orca_pane_key"}
+expected = {
+    "orca_terminal_handle", "orca_worktree_id", "orca_tab_id", "orca_pane_key",
+    "push_status", "push_attempted_at", "push_environment", "apns_status_code", "apns_reason", "apns_id",
+}
 print(len(columns & expected))
 PY
 )
-if [[ "$ORCA_COLUMN_COUNT" != "4" ]]; then
-    echo "Orca schema verification failed: expected 4 routing columns, found $ORCA_COLUMN_COUNT." >&2
+if [[ "$ORCA_COLUMN_COUNT" != "10" ]]; then
+    echo "Schema verification failed: expected 10 routing/diagnostic columns, found $ORCA_COLUMN_COUNT." >&2
     exit 1
 fi
-echo "Orca schema verification passed."
+echo "Orca and push diagnostic schema verification passed."
 
 # Show status. Use a unique file because a stale root-owned /tmp file may not be writable.
 # The allowed sudo command is exactly: /usr/bin/systemctl status tax

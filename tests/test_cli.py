@@ -86,6 +86,36 @@ def test_recap_reads_recent_text_messages(tmp_path, capsys):
     assert "toolCall" not in output
 
 
+def test_push_doctor_reports_accepted_apns(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "load_config", lambda: {"server": "https://tax.example", "api_key": "key"})
+    created = Mock()
+    created.raise_for_status.return_value = None
+    created.json.return_value = {
+        "task_id": "task-1",
+        "device_registered": True,
+        "environment": "production",
+    }
+    status = Mock()
+    status.raise_for_status.return_value = None
+    status.json.return_value = {
+        "diagnostic": {
+            "push_status": "sent",
+            "apns_status_code": 200,
+            "apns_id": "apns-1",
+        }
+    }
+    monkeypatch.setattr(cli.requests, "post", Mock(return_value=created))
+    monkeypatch.setattr(cli.requests, "get", Mock(return_value=status))
+
+    assert cli.cmd_push_doctor(argparse.Namespace(timeout=1)) == 0
+
+    output = capsys.readouterr().out
+    assert "Device registration: present" in output
+    assert "APNs result: sent" in output
+    assert "APNs ID: apns-1" in output
+    assert "cannot be confirmed without iOS telemetry" in output
+
+
 def test_status_requires_api_key(monkeypatch, capsys):
     monkeypatch.setattr(cli, "load_config", lambda: {})
     monkeypatch.delenv("TAX_API_KEY", raising=False)

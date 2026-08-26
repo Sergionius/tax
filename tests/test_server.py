@@ -154,6 +154,35 @@ def test_push_stores_metadata_and_reply_flow(monkeypatch, tmp_path):
         assert client.get("/replies", headers=AUTH).json()["tasks"] == []
 
 
+def test_push_diagnostic_records_apns_result_without_exposing_token(monkeypatch, tmp_path):
+    async def fake_apns_send(*_args, **_kwargs):
+        return main.apns.APNSResult(
+            status="sent",
+            environment="production",
+            status_code=200,
+            apns_id="diagnostic-apns-id",
+        )
+
+    monkeypatch.setattr(main.apns, "send", fake_apns_send)
+    monkeypatch.setattr(main, "APNS_USE_SANDBOX", False)
+    with make_client(monkeypatch, tmp_path) as client:
+        register(client, "secret-device-token", "all")
+        created = client.post("/diagnostics/push-test", headers=AUTH)
+        assert created.status_code == 200
+        payload = created.json()
+        assert payload["device_registered"] is True
+        assert payload["environment"] == "production"
+
+        diagnostic = client.get(f"/diagnostics/push/{payload['task_id']}", headers=AUTH).json()["diagnostic"]
+
+    assert diagnostic["push_status"] == "sent"
+    assert diagnostic["apns_status_code"] == 200
+    assert diagnostic["apns_id"] == "diagnostic-apns-id"
+    assert diagnostic["device_registered"] is True
+    assert "device_token" not in diagnostic
+    assert "secret-device-token" not in json.dumps(diagnostic)
+
+
 def test_rejects_unknown_push_mode(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         response = client.post(

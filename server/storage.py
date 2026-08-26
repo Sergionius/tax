@@ -42,6 +42,12 @@ def initialize(path: str) -> None:
                 orca_worktree_id TEXT,
                 orca_tab_id TEXT,
                 orca_pane_key TEXT,
+                push_status TEXT,
+                push_attempted_at TEXT,
+                push_environment TEXT,
+                apns_status_code INTEGER,
+                apns_reason TEXT,
+                apns_id TEXT,
                 created_at TEXT,
                 updated_at TEXT
             )
@@ -65,6 +71,12 @@ def initialize(path: str) -> None:
                 "orca_worktree_id": "TEXT",
                 "orca_tab_id": "TEXT",
                 "orca_pane_key": "TEXT",
+                "push_status": "TEXT",
+                "push_attempted_at": "TEXT",
+                "push_environment": "TEXT",
+                "apns_status_code": "INTEGER",
+                "apns_reason": "TEXT",
+                "apns_id": "TEXT",
             },
         )
         _add_missing_columns(conn, "device_tokens", {"preferences": "TEXT"})

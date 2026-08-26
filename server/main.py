@@ -164,7 +164,31 @@ async def send_apns(
         key_path=APNS_KEY_PATH,
         use_sandbox=APNS_USE_SANDBOX,
     )
-    await apns.send(config, logger, device_token, title, body, task_id, app_name, source, agent)
+    result = await apns.send(config, logger, device_token, title, body, task_id, app_name, source, agent)
+    conn = None
+    try:
+        conn = db_conn()
+        conn.execute(
+            "UPDATE tasks SET push_status = ?, push_attempted_at = ?, push_environment = ?, "
+            "apns_status_code = ?, apns_reason = ?, apns_id = ?, updated_at = ? WHERE id = ?",
+            (
+                result.status,
+                now_iso(),
+                result.environment,
+                result.status_code,
+                result.reason,
+                result.apns_id,
+                now_iso(),
+                task_id,
+            ),
+        )
+        conn.commit()
+    except sqlite3.Error as error:
+        log_event(logger, "apns_result_store_failed", level=logging.ERROR, task_id=task_id, error=str(error))
+    finally:
+        if conn is not None:
+            conn.close()
+    return result
 
 
 def device_registration(token: Optional[str] = None) -> Optional[sqlite3.Row]:
@@ -204,6 +228,9 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     device_token = payload.device_token or (registration["token"] if registration else None)
     mode = push_mode_for(registration)
     send_push, skip_reason = should_send_push(mode, payload.app or "")
+    push_enqueued = bool(send_push and device_token)
+    if not push_enqueued:
+        skip_reason = skip_reason or "device_token_missing"
 
     log_event(
         logger,
@@ -222,8 +249,9 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
         conn.execute(
             "INSERT INTO tasks "
             "(id, device_token, title, body, status, context, logs, source, agent, app, "
-            "orca_terminal_handle, orca_worktree_id, orca_tab_id, orca_pane_key, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "orca_terminal_handle, orca_worktree_id, orca_tab_id, orca_pane_key, push_status, "
+            "push_environment, apns_reason, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 task_id,
                 device_token or "",
@@ -239,6 +267,9 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
                 payload.orca_worktree_id,
                 payload.orca_tab_id,
                 payload.orca_pane_key,
+                "queued" if push_enqueued else "skipped",
+                "sandbox" if APNS_USE_SANDBOX else "production",
+                skip_reason or "",
                 created_at,
                 created_at,
             ),
@@ -247,7 +278,6 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     finally:
         conn.close()
 
-    push_enqueued = bool(send_push and device_token)
     if push_enqueued:
         background_tasks.add_task(
             send_apns,
@@ -261,7 +291,6 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
         )
         log_event(logger, "apns_enqueued", task_id=task_id)
     else:
-        skip_reason = skip_reason or "device_token_missing"
         log_event(logger, "apns_skipped", task_id=task_id, reason=skip_reason)
 
     return {
@@ -411,6 +440,44 @@ async def health():
         if conn is not None:
             conn.close()
     return {"ok": True, "database": "ok"}
+
+
+@app.post("/diagnostics/push-test", dependencies=[Depends(require_api_key)])
+async def diagnostic_push_test(background_tasks: BackgroundTasks):
+    result = await push(
+        PushPayload(
+            title="tax diagnostic",
+            body="Push delivery test",
+            source="push-doctor",
+            agent="diagnostic",
+            app="tax",
+        ),
+        background_tasks,
+    )
+    return {
+        **result,
+        "environment": "sandbox" if APNS_USE_SANDBOX else "production",
+        "device_registered": bool(device_registration()),
+    }
+
+
+@app.get("/diagnostics/push/{task_id}", dependencies=[Depends(require_api_key)])
+async def diagnostic_push_status(task_id: str):
+    conn = db_conn()
+    try:
+        row = conn.execute(
+            "SELECT id, push_status, push_attempted_at, push_environment, apns_status_code, "
+            "apns_reason, apns_id, device_token, source, created_at, updated_at "
+            "FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="task not found")
+    result = row_to_dict(row)
+    result["device_registered"] = bool(result.pop("device_token", ""))
+    return {"ok": True, "diagnostic": result}
 
 
 @app.post("/register-device", dependencies=[Depends(require_api_key)])

@@ -25,6 +25,15 @@ class APNSConfig:
     use_sandbox: bool = False
 
 
+@dataclass(frozen=True)
+class APNSResult:
+    status: str
+    environment: str
+    status_code: int | None = None
+    reason: str = ""
+    apns_id: str = ""
+
+
 async def send(
     config: APNSConfig,
     logger: logging.Logger,
@@ -35,11 +44,12 @@ async def send(
     app_name: str = "",
     source: str = "",
     agent: str = "",
-) -> None:
+) -> APNSResult:
+    environment = "sandbox" if config.use_sandbox else "production"
     log_event(logger, "apns_send_started", task_id=task_id, token_configured=bool(device_token))
     if not device_token or not config.key_path or not os.path.exists(config.key_path):
         log_event(logger, "apns_skipped", level=logging.WARNING, task_id=task_id, reason="not_configured")
-        return
+        return APNSResult(status="skipped", environment=environment, reason="not_configured")
 
     try:
         with open(config.key_path, encoding="utf-8") as key_file:
@@ -53,7 +63,7 @@ async def send(
         )
     except (OSError, ValueError, jwt.PyJWTError) as error:
         log_event(logger, "apns_configuration_error", level=logging.ERROR, task_id=task_id, error=str(error))
-        return
+        return APNSResult(status="failed", environment=environment, reason="configuration_error")
     host = "api.development.push.apple.com" if config.use_sandbox else "api.push.apple.com"
     payload = {
         "aps": {
@@ -82,12 +92,17 @@ async def send(
             )
     except httpx.HTTPError as error:
         log_event(logger, "apns_network_error", level=logging.ERROR, task_id=task_id, error=str(error))
-        return
+        return APNSResult(status="failed", environment=environment, reason="network_error")
 
     apns_id = response.headers.get("apns-id", "")
     if 200 <= response.status_code < 300:
         log_event(logger, "apns_sent", task_id=task_id, status_code=response.status_code, apns_id=apns_id)
-        return
+        return APNSResult(
+            status="sent",
+            environment=environment,
+            status_code=response.status_code,
+            apns_id=apns_id,
+        )
     try:
         reason = response.json().get("reason", "unknown")
     except (ValueError, AttributeError):
@@ -97,6 +112,13 @@ async def send(
         "apns_failed",
         level=logging.WARNING,
         task_id=task_id,
+        status_code=response.status_code,
+        reason=reason,
+        apns_id=apns_id,
+    )
+    return APNSResult(
+        status="failed",
+        environment=environment,
         status_code=response.status_code,
         reason=reason,
         apns_id=apns_id,

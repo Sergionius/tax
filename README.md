@@ -46,7 +46,10 @@ Device token можно не задавать, если iOS-приложение
 ```bash
 tax doctor
 curl http://127.0.0.1:17373/health
+tax push-doctor  # создаёт тестовый push и показывает фактический ответ APNs
 ```
+
+`push-doctor` безопасно показывает регистрацию устройства, APNs environment, HTTP status, reason и `apns-id`, но не выводит device token. Ответ APNs `200` означает, что Apple приняла push; подтвердить показ баннера на iPhone без iOS telemetry невозможно.
 
 ## Использование
 
