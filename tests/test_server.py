@@ -193,6 +193,31 @@ def test_rejects_unknown_push_mode(monkeypatch, tmp_path):
     assert response.status_code == 422
 
 
+def test_task_list_orders_by_creation_not_expiration_update(monkeypatch, tmp_path):
+    async def fake_send(*_args):
+        return None
+
+    monkeypatch.setattr(main, "send_apns", fake_send)
+    with make_client(monkeypatch, tmp_path) as client:
+        old_id = push(client, "").json()["task_id"]
+        new_id = push(client, "").json()["task_id"]
+        conn = main.db_conn()
+        conn.execute(
+            "UPDATE tasks SET status = 'expired', created_at = ?, updated_at = ? WHERE id = ?",
+            ("2099-01-01T00:00:00+00:00", "2099-01-03T00:00:00+00:00", old_id),
+        )
+        conn.execute(
+            "UPDATE tasks SET created_at = ?, updated_at = ? WHERE id = ?",
+            ("2099-01-02T00:00:00+00:00", "2099-01-02T00:00:00+00:00", new_id),
+        )
+        conn.commit()
+        conn.close()
+
+        tasks = client.get("/tasks", headers=AUTH).json()["tasks"]
+
+    assert [task["id"] for task in tasks[:2]] == [new_id, old_id]
+
+
 def test_auth_and_query_validation(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         assert client.get("/tasks").status_code in {401, 403}

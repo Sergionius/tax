@@ -420,7 +420,7 @@ async def list_tasks(
     conn = db_conn()
     expire_stale_tasks(conn)
     rows = conn.execute(
-        "SELECT * FROM tasks ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+        "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ? OFFSET ?",
         (limit, offset),
     ).fetchall()
     conn.close()

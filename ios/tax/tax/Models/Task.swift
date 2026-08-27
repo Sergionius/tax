@@ -97,7 +97,7 @@ extension Task {
     }
 
     var displayListTimestamp: String {
-        let value = updatedAt.isEmpty ? createdAt : updatedAt
+        let value = createdAt.isEmpty ? updatedAt : createdAt
         guard let date = Self.parseDate(value) else { return Self.displayDate(from: value) }
 
         if Calendar.current.isDateInToday(date) {
