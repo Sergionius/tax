@@ -228,6 +228,65 @@ def cmd_run(args: argparse.Namespace) -> int:
     return run_agent(args.command, detach=args.detach)
 
 
+def cmd_e2ee_key(args: argparse.Namespace) -> int:
+    from tax.e2ee import encode_key, generate_key
+    from tax.keychain import load_e2ee_key, store_e2ee_key
+
+    try:
+        if args.action == "generate":
+            value = encode_key(generate_key())
+            store_e2ee_key(value)
+            print(value)
+            print("[tax] E2EE key stored in macOS Keychain; copy it to the iPhone once.", file=sys.stderr)
+        else:
+            print(load_e2ee_key())
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f"[tax] Keychain operation failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_remote_host(args: argparse.Namespace) -> int:
+    from tax.keychain import load_e2ee_key
+    from tax.remote_host import run_remote_host
+
+    config = load_config()
+    try:
+        run_remote_host(
+            server=args.server or get_server(config),
+            api_key=args.api_key or get_api_key(config),
+            host_id=args.host_id,
+            device_id=args.device_id,
+            e2ee_key=load_e2ee_key(),
+            orca_pairing_code_file=Path(args.orca_pairing_code_file).expanduser(),
+        )
+    except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as error:
+        print(f"[tax] remote host failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_remote_smoke(args: argparse.Namespace) -> int:
+    from tax.keychain import load_e2ee_key
+    from tax.remote_test_client import run_remote_smoke
+
+    config = load_config()
+    try:
+        result = run_remote_smoke(
+            server=args.server or get_server(config),
+            api_key=args.api_key or get_api_key(config),
+            host_id=args.host_id,
+            device_id=args.device_id,
+            e2ee_key=load_e2ee_key(),
+            start_pi=args.start_pi,
+        )
+    except (OSError, RuntimeError, subprocess.SubprocessError, TimeoutError, ValueError) as error:
+        print(f"[tax] remote smoke failed: {error}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def cmd_agent(args: argparse.Namespace) -> int:
     from tax.agent import run_agent_server
 
@@ -423,11 +482,34 @@ def main() -> int:
     p_config.add_argument("--device-token", help="iPhone device token for APNs")
     p_config.set_defaults(func=cmd_config)
 
+    # e2ee-key
+    p_e2ee_key = subparsers.add_parser("e2ee-key", help="Manage the remote workspace encryption key")
+    p_e2ee_key.add_argument("action", choices=("generate", "show"))
+    p_e2ee_key.set_defaults(func=cmd_e2ee_key)
+
     # run
     p_run = subparsers.add_parser("run", help="Run a command and notify iPhone on completion")
     p_run.add_argument("command", nargs=argparse.REMAINDER, help="Command to run")
     p_run.add_argument("--detach", action="store_true", help="Do not wait for reply")
     p_run.set_defaults(func=cmd_run)
+
+    # remote-host
+    p_remote_host = subparsers.add_parser("remote-host", help="Connect this Mac's Orca Runtime to the E2EE relay")
+    p_remote_host.add_argument("--server", help="Backend URL")
+    p_remote_host.add_argument("--api-key", help="Backend API key")
+    p_remote_host.add_argument("--host-id", required=True)
+    p_remote_host.add_argument("--device-id", required=True)
+    p_remote_host.add_argument("--orca-pairing-code-file", required=True)
+    p_remote_host.set_defaults(func=cmd_remote_host)
+
+    # remote-smoke
+    p_remote_smoke = subparsers.add_parser("remote-smoke", help="Test encrypted remote terminal streaming")
+    p_remote_smoke.add_argument("--server", help="Backend URL")
+    p_remote_smoke.add_argument("--api-key", help="Backend API key")
+    p_remote_smoke.add_argument("--host-id", required=True)
+    p_remote_smoke.add_argument("--device-id", required=True)
+    p_remote_smoke.add_argument("--start-pi", action="store_true")
+    p_remote_smoke.set_defaults(func=cmd_remote_smoke)
 
     # agent
     p_agent = subparsers.add_parser("agent", help="Run the background reply bridge for Pi terminals in Orca")

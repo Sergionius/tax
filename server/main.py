@@ -9,16 +9,19 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, WebSocket, status
+from starlette.websockets import WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 
 try:
     from server import apns, storage
+    from server.relay import RelayHub
     from server.logging_config import configure_logging, log_event
 except ModuleNotFoundError:  # Standalone deployment runs with server/ as the working directory.
     import apns
     import storage
+    from relay import RelayHub
     from logging_config import configure_logging, log_event
 
 DB_PATH = os.environ.get("TAX_DB_PATH", "/data/tax.db")
@@ -33,6 +36,7 @@ APNS_USE_SANDBOX = os.environ.get("TAX_APNS_USE_SANDBOX", "").lower() in ("1", "
 
 security = HTTPBearer()
 logger = configure_logging("tax-server")
+relay_hub = RelayHub()
 
 
 def require_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -218,6 +222,24 @@ def should_send_push(mode: str, app_name: str) -> tuple[bool, Optional[str]]:
     if mode == "tax" and app_name != "tax":
         return False, "app_filtered"
     return True, None
+
+
+@app.websocket("/relay/{role}")
+async def relay_socket(websocket: WebSocket, role: str, host_id: str, device_id: str):
+    authorization = websocket.headers.get("authorization", "")
+    if not API_KEY or authorization != f"Bearer {API_KEY}":
+        await websocket.close(code=4401, reason="unauthorized")
+        return
+    if role not in {"host", "device"} or not host_id or not device_id or len(host_id) > 128 or len(device_id) > 128:
+        await websocket.close(code=4400, reason="invalid route")
+        return
+    peer = await relay_hub.connect(role, host_id, device_id, websocket)
+    try:
+        await relay_hub.run(role, host_id, device_id, peer)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await relay_hub.disconnect(role, host_id, device_id, peer)
 
 
 @app.post("/push", dependencies=[Depends(require_api_key)])

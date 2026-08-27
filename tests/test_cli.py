@@ -42,6 +42,18 @@ def test_invalid_config_is_reported_without_traceback(monkeypatch, tmp_path, cap
     assert "invalid tax config" in capsys.readouterr().err
 
 
+def test_e2ee_key_generate_stores_and_prints_copyable_key(monkeypatch, capsys):
+    stored = []
+    monkeypatch.setattr("tax.keychain.store_e2ee_key", stored.append)
+
+    assert cli.cmd_e2ee_key(argparse.Namespace(action="generate")) == 0
+
+    captured = capsys.readouterr()
+    assert stored == [captured.out.strip()]
+    assert len(stored[0]) == 43
+    assert "Keychain" in captured.err
+
+
 def test_send_to_orca_uses_explicit_handle_and_enter(monkeypatch):
     payload = {"ok": True, "result": {"send": {"accepted": True}}}
     run = Mock(return_value=Mock(stdout=json.dumps(payload), stderr=""))
