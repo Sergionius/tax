@@ -1,97 +1,177 @@
-# tax — Task Agent eXchange
+# tax — remote Orca workspace for iPhone
 
-Push-уведомления и remote reply для Pi, запущенного в [Orca](https://github.com/stablyai/orca) на Mac.
+`tax` позволяет с iPhone подключаться к открытым workspace и терминалам Orca на Mac через зашифрованный relay. Приложение показывает ANSI/TUI-вывод, отправляет ввод в выбранный PTY, создаёт и закрывает терминалы, запускает `pi`, а также позволяет безопасно просматривать и редактировать файлы workspace.
 
-## Как это работает
+## Архитектура
 
-1. Pi extension после `agent_settled` отправляет результат задачи на backend.
-2. Backend сохраняет задачу и отправляет APNs на iPhone.
-3. Пользователь открывает iOS-приложение `tax` и отправляет reply.
-4. `tax-agent` на Mac забирает reply и передаёт его в исходный терминал Orca через:
+- **Orca Runtime на Mac** — источник workspace и терминалов;
+- **tax remote host на Mac** — адаптер к приватному протоколу Orca и scoped file service;
+- **backend/VPS** — маршрутизирует только ciphertext и отправляет APNs;
+- **iOS-приложение** — SwiftUI-клиент с xterm.js renderer;
+- **E2EE** — отдельный 256-битный ключ tax, которого нет на backend.
+
+Backend не хранит terminal input/output или содержимое файлов. Неопределённо доставленный ввод автоматически не повторяется.
+
+## Что понадобится
+
+- запущенная Orca на Mac;
+- установленный `tax` CLI (`./scripts/install.sh`);
+- актуальный backend;
+- iPhone с установленным приложением `tax`;
+- четыре совпадающих значения:
+  - backend API key;
+  - tax E2EE key;
+  - Host ID, обычно `mac-main`;
+  - Device ID, обычно `iphone-main`.
+
+API key, E2EE key и Orca pairing code — секреты. Не добавляйте их в Git, сообщения, скриншоты или логи.
+
+## Как получить ключи
+
+### 1. Backend API key
+
+На VPS из-под `root`:
 
 ```bash
-orca terminal send --terminal "$ORCA_TERMINAL_HANDLE" --text "reply" --enter --json
+cd /home/hermes/tax
+grep -m1 '^TAX_API_KEY=' server/.env | cut -d= -f2-
 ```
 
-Extension сохраняет точный `ORCA_TERMINAL_HANDLE`, worktree, tab и pane. Активный терминал никогда не используется как fallback. Если handle устарел после перезапуска Orca, агент может восстановить его только по однозначному совпадению tab/leaf; иначе задача получает `delivery_failed`.
+Скопируйте значение после `TAX_API_KEY=` напрямую в настройки iPhone и в конфигурацию Mac. Не публикуйте вывод команды.
 
-## Структура
-
-- `src/tax/` — Python CLI и постоянный reply bridge для Mac;
-- `extensions/tax-push.ts` — Pi extension;
-- `server/` — FastAPI backend и APNs;
-- `ios/` — SwiftUI приложение.
-
-## Установка на Mac
-
-Требования: macOS, запущенная Orca с установленным CLI, `pipx` и Pi.
+На Mac настройте CLI без сохранения ключа в истории shell:
 
 ```bash
-./scripts/install.sh
-```
-
-Настройка:
-
-```bash
+read -s 'TAX_KEY?Backend API key: '; echo
 tax config \
   --server https://tax.138-249-127-23.nip.io \
-  --api-key YOUR_API_KEY \
-  --device-token YOUR_IOS_DEVICE_TOKEN
+  --api-key "$TAX_KEY"
+unset TAX_KEY
 ```
 
-Device token можно не задавать, если iOS-приложение уже зарегистрировало его на backend.
+### 2. Tax E2EE key
 
-Проверка:
+На Mac сгенерируйте отдельный ключ:
+
+```bash
+tax e2ee-key generate
+```
+
+Он сохраняется в macOS Keychain под service `tax.remote.e2ee`. Чтобы повторно показать и сразу скопировать его в clipboard:
+
+```bash
+tax e2ee-key show | pbcopy
+```
+
+Вставьте это значение в поле **256-bit encryption key** на iPhone. Backend этот ключ не получает.
+
+### 3. Orca pairing code для Mac host
+
+1. Откройте Orca на Mac.
+2. Откройте **Orca Mobile**.
+3. Сгенерируйте pairing code и выберите **Copy pairing code**.
+4. Сохраните код в защищённый файл:
+
+```bash
+mkdir -p ~/.config/tax
+install -m 600 /dev/null ~/.config/tax/orca-pairing
+pbpaste > ~/.config/tax/orca-pairing
+chmod 600 ~/.config/tax/orca-pairing
+```
+
+Pairing code относится к Orca Runtime и не заменяет tax E2EE key.
+
+## Подключение iPhone
+
+### 1. Настройки приложения
+
+Откройте шестерёнку в приложении и заполните:
+
+| Поле | Значение |
+|---|---|
+| Server URL | `https://tax.138-249-127-23.nip.io` |
+| API Key | значение из `server/.env` |
+| Host ID | `mac-main` |
+| Device ID | `iphone-main` |
+| 256-bit encryption key | результат `tax e2ee-key show` |
+
+Нажмите **Save Settings**, затем **Request Push Registration**. Device token регистрируется на backend автоматически.
+
+### 2. Запуск Mac host
+
+На Mac:
+
+```bash
+tax remote-host \
+  --host-id mac-main \
+  --device-id iphone-main \
+  --orca-pairing-code-file ~/.config/tax/orca-pairing
+```
+
+Сразу откройте приложение на iPhone. Если host завершился сообщением о timeout до подключения телефона, запустите команду ещё раз при открытом приложении.
+
+Индикатор в левом верхнем углу должен стать зелёным и показать `online`. После этого появятся открытые workspace Orca.
+
+### 3. Проверка
+
+1. Откройте workspace `main`.
+2. Откройте существующий терминал и проверьте ANSI/TUI-вывод.
+3. Создайте новый терминал кнопкой `+`.
+4. Введите `pi` и нажмите `enter`.
+5. Проверьте `Ctrl-C`, resize, rename и close.
+6. Откройте **Browse workspace files**, текстовый файл, Markdown preview и изображение.
+
+Проверка backend и APNs:
 
 ```bash
 tax doctor
-curl http://127.0.0.1:17373/health
-tax push-doctor  # создаёт тестовый push и показывает фактический ответ APNs
+tax push-doctor
 ```
 
-`push-doctor` безопасно показывает регистрацию устройства, APNs environment, HTTP status, reason и `apns-id`, но не выводит device token. Ответ APNs `200` означает, что Apple приняла push; подтвердить показ баннера на iPhone без iOS telemetry невозможно.
+Успешный `APNs result: sent` и HTTP `200` означают, что Apple приняла push. Отображение баннера дополнительно зависит от разрешений Notifications, Focus и Scheduled Summary на iPhone.
 
-## Использование
+## Push deep links
 
-Запусти Pi в терминале Orca. После завершения turn extension отправит push. Reply с iPhone будет вставлен и отправлен в тот же терминал.
-
-Дополнительные команды:
+Pi extension отправляет в push только routing identifiers: `host_id`, `workspace_id` и `terminal_id`. Для нестандартного Host ID задайте его в окружении Pi/Orca:
 
 ```bash
-tax status
-tax recap
-tax recap --session-file FILE
-tax run pi -p "выполни задачу"
+export TAX_HOST_ID=mac-main
 ```
 
-`tax run` поддерживает remote reply только при запуске внутри терминала Orca, где задан `ORCA_TERMINAL_HANDLE`.
+При нажатии push приложение открывает соответствующий Mac, workspace или terminal. Устаревший task/reply UI удалён.
 
-## Гарантии доставки
+## Backend deploy
 
-- задача и reply истекают через 30 минут;
-- reply доставляется не более одного раза;
-- закрытый, неоднозначный или недоступный терминал приводит к `delivery_failed`;
-- неизвестный результат записи не повторяется автоматически;
-- локальные финальные записи удаляются через 7 дней.
-
-## Backend
-
-Production deploy с Mac выполняется одной командой:
+С Mac:
 
 ```bash
 ./scripts/deploy-backend.sh
 ```
 
-Скрипт подключается к `hermes@138.249.127.23`, обновляет `main`, создаёт backup SQLite, проверяет целостность БД, перезапускает systemd service, проверяет health и Orca schema. Host и каталог можно переопределить через `TAX_DEPLOY_HOST` и `TAX_DEPLOY_PROJECT_DIR`.
+Или на VPS из-под `root`:
+
+```bash
+git config --global --add safe.directory /home/hermes/tax
+cd /home/hermes/tax
+git fetch origin main
+git pull --ff-only origin main
+./deploy.sh
+```
+
+Deploy создаёт backup SQLite, обновляет зависимости, перезапускает `tax.service`, проверяет health и schema.
 
 Эксплуатационные инструкции: [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
-## Проверки
+## Проверки разработки
 
 ```bash
-python -m pytest
-ruff check server src tests
+.venv/bin/ruff check .
+.venv/bin/pytest -q
 ./scripts/preflight.sh
 ```
 
-iOS-инструкции: [`ios/README.md`](ios/README.md).
+Дополнительно:
+
+- [`ios/README-REMOTE.md`](ios/README-REMOTE.md) — iOS remote client;
+- [`docs/remote-protocol-v1.md`](docs/remote-protocol-v1.md) — E2EE и wire protocol;
+- [`docs/orca-runtime-compatibility.md`](docs/orca-runtime-compatibility.md) — совместимость Orca Runtime.
