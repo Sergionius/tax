@@ -38,7 +38,10 @@ struct WorkspaceListView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnectionBadge(state: store.connectionState) }
-                ToolbarItem(placement: .topBarTrailing) { NavigationLink(destination: SettingsView()) { Image(systemName: "gear") } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(destination: SettingsView()) { Image(systemName: "gear") }
+                        .accessibilityIdentifier("settings.open")
+                }
             }
             .task {
                 if store.connectionState == .macOffline, settings.remoteConfiguration != nil {

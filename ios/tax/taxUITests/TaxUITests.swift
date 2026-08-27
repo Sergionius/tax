@@ -2,66 +2,45 @@ import XCTest
 
 @MainActor
 final class TaxUITests: XCTestCase {
-    override func setUp() {
-        continueAfterFailure = false
-    }
+    override func setUp() { continueAfterFailure = false }
 
-    func testFirstLaunchShowsConfigurationState() {
+    func testFirstLaunchShowsRemoteConfigurationState() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["Configuration Required"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Add your API key in Settings."].exists || app.staticTexts["Configure API key and server URL in Settings."].exists)
+        XCTAssertTrue(app.staticTexts["Remote workspace not configured"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Add host, device, and encryption settings."].exists)
+        XCTAssertFalse(app.staticTexts["Mock tax task"].exists)
     }
 
-    func testSavingSettingsLoadsMockTasks() {
+    func testSettingsExposeRemoteConfigurationAndNoTaskReplyControls() {
         let app = launch()
         app.buttons["settings.open"].tap()
-        let apiKey = app.secureTextFields["settings.apiKey"]
-        XCTAssertTrue(apiKey.waitForExistence(timeout: 3))
-        apiKey.tap()
-        apiKey.typeText("test-key")
-        app.keyboards.buttons["Return"].tap()
-        app.swipeUp()
-        app.buttons["settings.save"].tap()
-        app.buttons["Done"].tap()
-        XCTAssertTrue(app.staticTexts["Mock tax task"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["settings.serverURL"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.secureTextFields["settings.apiKey"].exists)
+        XCTAssertTrue(app.textFields["Host ID"].exists)
+        XCTAssertTrue(app.textFields["Device ID"].exists)
+        XCTAssertTrue(app.secureTextFields["256-bit encryption key"].exists)
+        XCTAssertFalse(app.buttons["reply.send"].exists)
     }
 
-    func testOpenTaskAndSendReply() {
-        let app = launch("--mock-configured")
-        XCTAssertTrue(app.staticTexts["Mock tax task"].waitForExistence(timeout: 5))
-        app.staticTexts["Mock tax task"].tap()
-        let editor = app.descendants(matching: .any)["reply.text"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        editor.tap()
-        editor.typeText("UI reply")
-        app.buttons["reply.send"].tap()
-        XCTAssertTrue(app.staticTexts["UI reply"].waitForExistence(timeout: 5))
-    }
+    func testLiveRelayListsWorkspacesAndOpensFiles() throws {
+        let environment = ProcessInfo.processInfo.environment
+        let apiKey = try XCTUnwrap(environment["TAX_UI_API_KEY"])
+        let encryptionKey = try XCTUnwrap(environment["TAX_UI_E2EE_KEY"])
+        let app = launch(
+            "--mock-configured",
+            "--mock-server-url", environment["TAX_UI_SERVER"] ?? "https://tax.138-249-127-23.nip.io",
+            "--mock-api-key", apiKey,
+            "--mock-host-id", environment["TAX_UI_HOST_ID"] ?? "mac-main",
+            "--mock-device-id", environment["TAX_UI_DEVICE_ID"] ?? "iphone-main",
+            "--mock-e2ee-key", encryptionKey
+        )
 
-    func testReplyErrorKeepsEnteredText() {
-        let app = launch("--mock-reply-error")
-        XCTAssertTrue(app.staticTexts["Mock tax task"].waitForExistence(timeout: 5))
-        app.staticTexts["Mock tax task"].tap()
-        let editor = app.descendants(matching: .any)["reply.text"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        editor.tap()
-        editor.typeText("Keep me")
-        app.buttons["reply.send"].tap()
-        XCTAssertTrue(app.alerts["Could Not Send Reply"].waitForExistence(timeout: 5))
-        app.alerts["Could Not Send Reply"].buttons["OK"].tap()
-        XCTAssertEqual(editor.value as? String, "Keep me")
-    }
-
-    func testMockPushOpensExpectedTask() {
-        let app = launch("--mock-task-id", "mock-task-1")
-        XCTAssertTrue(app.descendants(matching: .any)["reply.text"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Review the generated tax report."].exists)
-    }
-
-    func testNetworkErrorShowsRetry() {
-        let app = launch("--mock-network-error")
-        XCTAssertTrue(app.buttons["tasks.retry"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["No network connection. Try again when you are online."].exists)
+        let workspace = app.staticTexts["main"].firstMatch
+        XCTAssertTrue(workspace.waitForExistence(timeout: 20))
+        workspace.tap()
+        XCTAssertTrue(app.staticTexts["Browse workspace files"].waitForExistence(timeout: 10))
+        app.staticTexts["Browse workspace files"].tap()
+        XCTAssertTrue(app.navigationBars["Files"].waitForExistence(timeout: 10))
     }
 
     @discardableResult
