@@ -1,0 +1,131 @@
+import Foundation
+
+enum RemoteConnectionState: String, Sendable {
+    case connecting
+    case online
+    case macOffline = "mac_offline"
+    case orcaOffline = "orca_offline"
+    case incompatible
+    case reconnecting
+}
+
+struct RemoteWorkspace: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let projectID: String
+    let projectName: String
+    let path: String
+    let branch: String
+    let displayName: String
+    let terminalCount: Int
+    let agentState: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, path, branch
+        case projectID = "project_id"
+        case projectName = "project_name"
+        case displayName = "display_name"
+        case terminalCount = "terminal_count"
+        case agentState = "agent_state"
+    }
+}
+
+struct RemoteTerminal: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let workspaceID: String
+    let title: String
+    let connected: Bool
+    let writable: Bool
+    let columns: Int?
+    let rows: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, connected, writable, columns, rows
+        case workspaceID = "workspace_id"
+    }
+}
+
+struct RemoteControlEnvelope: Codable, Sendable {
+    let version: Int
+    let type: String
+    let requestID: String
+    let operationID: String?
+    let payload: DataValue
+
+    enum CodingKeys: String, CodingKey {
+        case version, type, payload
+        case requestID = "request_id"
+        case operationID = "operation_id"
+    }
+}
+
+struct DataValue: Codable, Sendable {
+    let value: [String: JSONValue]
+
+    init(_ value: [String: JSONValue] = [:]) { self.value = value }
+
+    init(from decoder: Decoder) throws {
+        value = try decoder.singleValueContainer().decode([String: JSONValue].self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(value)
+    }
+}
+
+indirect enum JSONValue: Codable, Sendable {
+    case string(String), int(Int), bool(Bool), object([String: JSONValue]), array([JSONValue]), null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() { self = .null }
+        else if let value = try? container.decode(Bool.self) { self = .bool(value) }
+        else if let value = try? container.decode(Int.self) { self = .int(value) }
+        else if let value = try? container.decode(String.self) { self = .string(value) }
+        else if let value = try? container.decode([String: JSONValue].self) { self = .object(value) }
+        else { self = .array(try container.decode([JSONValue].self)) }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case let .string(value): try container.encode(value)
+        case let .int(value): try container.encode(value)
+        case let .bool(value): try container.encode(value)
+        case let .object(value): try container.encode(value)
+        case let .array(value): try container.encode(value)
+        case .null: try container.encodeNil()
+        }
+    }
+
+    var string: String? { if case let .string(value) = self { value } else { nil } }
+    var int: Int? { if case let .int(value) = self { value } else { nil } }
+    var object: [String: JSONValue]? { if case let .object(value) = self { value } else { nil } }
+    var array: [JSONValue]? { if case let .array(value) = self { value } else { nil } }
+}
+
+struct RemoteTerminalFrame: Sendable {
+    enum Opcode: UInt8, Sendable { case snapshot = 1, output, input, resize, ack, error }
+    let opcode: Opcode
+    let streamID: UInt32
+    let generation: UInt64
+    let sequence: UInt64
+    let payload: Data
+
+    init(data: Data) throws {
+        guard data.count >= 24, data[0] == 1, let opcode = Opcode(rawValue: data[1]) else {
+            throw RemoteClientError.invalidFrame
+        }
+        self.opcode = opcode
+        streamID = data.readInteger(at: 4)
+        generation = data.readInteger(at: 8)
+        sequence = data.readInteger(at: 16)
+        payload = data.dropFirst(24)
+    }
+}
+
+private extension Data {
+    func readInteger<T: FixedWidthInteger>(at offset: Int) -> T {
+        self[offset ..< offset + MemoryLayout<T>.size].reduce(T.zero) { ($0 << 8) | T($1) }
+    }
+}

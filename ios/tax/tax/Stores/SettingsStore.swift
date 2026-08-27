@@ -23,6 +23,14 @@ struct UserDefaultsPreferences: PreferencesStoring {
     }
 }
 
+struct RemoteConfiguration: Sendable {
+    let serverURL: URL
+    let apiKey: String
+    let hostID: String
+    let deviceID: String
+    let e2eeKey: String
+}
+
 @MainActor
 @Observable
 final class SettingsStore {
@@ -36,12 +44,18 @@ final class SettingsStore {
     }
     var deviceToken: String
     var pushMode: PushMode
+    var hostID: String
+    var remoteDeviceID: String
+    var e2eeKey: String
     var lastSaveError: String?
 
     @ObservationIgnored private let apiKeyKey = "tax.apiKey"
     @ObservationIgnored private let serverURLKey = "tax.serverURL"
     @ObservationIgnored private let deviceTokenKey = "tax.deviceToken"
     @ObservationIgnored private let pushModeKey = "tax.pushMode"
+    @ObservationIgnored private let hostIDKey = "tax.hostID"
+    @ObservationIgnored private let remoteDeviceIDKey = "tax.remoteDeviceID"
+    @ObservationIgnored private let e2eeKeyKey = "tax.remoteE2EEKey"
     @ObservationIgnored private let keychain: any KeychainStoring
     @ObservationIgnored private let preferences: any PreferencesStoring
     @ObservationIgnored private let serviceFactory: ServiceFactory
@@ -64,9 +78,13 @@ final class SettingsStore {
         serverURL = preferences.string(forKey: serverURLKey) ?? "https://tax.138-249-127-23.nip.io"
         deviceToken = preferences.string(forKey: deviceTokenKey) ?? ""
         pushMode = preferences.string(forKey: pushModeKey).flatMap(PushMode.init(rawValue:)) ?? .taxOnly
+        hostID = preferences.string(forKey: hostIDKey) ?? "mac-main"
+        remoteDeviceID = preferences.string(forKey: remoteDeviceIDKey) ?? "iphone-main"
+        e2eeKey = ""
 
         do {
             apiKey = try keychain.load(key: apiKeyKey) ?? ""
+            e2eeKey = try keychain.load(key: e2eeKeyKey) ?? ""
             lastSaveError = nil
         } catch {
             lastSaveError = error.localizedDescription
@@ -86,9 +104,13 @@ final class SettingsStore {
         serverURL = preferences.string(forKey: serverURLKey) ?? "https://tax.138-249-127-23.nip.io"
         deviceToken = preferences.string(forKey: deviceTokenKey) ?? ""
         pushMode = preferences.string(forKey: pushModeKey).flatMap(PushMode.init(rawValue:)) ?? .taxOnly
+        hostID = preferences.string(forKey: hostIDKey) ?? "mac-main"
+        remoteDeviceID = preferences.string(forKey: remoteDeviceIDKey) ?? "iphone-main"
+        e2eeKey = ""
 
         do {
             apiKey = try keychain.load(key: apiKeyKey) ?? ""
+            e2eeKey = try keychain.load(key: e2eeKeyKey) ?? ""
             lastSaveError = nil
         } catch {
             lastSaveError = error.localizedDescription
@@ -108,8 +130,14 @@ final class SettingsStore {
             } else {
                 try keychain.save(key: apiKeyKey, value: normalizedAPIKey)
             }
+            let normalizedE2EEKey = e2eeKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            e2eeKey = normalizedE2EEKey
+            if normalizedE2EEKey.isEmpty { try keychain.delete(key: e2eeKeyKey) }
+            else { try keychain.save(key: e2eeKeyKey, value: normalizedE2EEKey) }
             preferences.set(serverURL, forKey: serverURLKey)
             preferences.set(pushMode.rawValue, forKey: pushModeKey)
+            preferences.set(hostID.trimmingCharacters(in: .whitespacesAndNewlines), forKey: hostIDKey)
+            preferences.set(remoteDeviceID.trimmingCharacters(in: .whitespacesAndNewlines), forKey: remoteDeviceIDKey)
             cachedService = nil
             lastSaveError = nil
             logger.info("Saved settings: apiKeyPresent=\(!self.apiKey.isEmpty), apiKeyLength=\(self.apiKey.count)")
@@ -129,6 +157,23 @@ final class SettingsStore {
         deviceToken = token
         preferences.set(token, forKey: deviceTokenKey)
         logger.info("Saved a device token of length \(token.count)")
+    }
+
+    var remoteConfiguration: RemoteConfiguration? {
+        guard let serverURL = URL(string: serverURL),
+              ["http", "https"].contains(serverURL.scheme?.lowercased() ?? ""),
+              serverURL.host != nil,
+              !normalizedAPIKey.isEmpty,
+              !hostID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !remoteDeviceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !e2eeKey.isEmpty else { return nil }
+        return RemoteConfiguration(
+            serverURL: serverURL,
+            apiKey: normalizedAPIKey,
+            hostID: hostID.trimmingCharacters(in: .whitespacesAndNewlines),
+            deviceID: remoteDeviceID.trimmingCharacters(in: .whitespacesAndNewlines),
+            e2eeKey: e2eeKey
+        )
     }
 
     var configuredService: (any TaskServing)? {

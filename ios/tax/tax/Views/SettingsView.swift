@@ -68,6 +68,23 @@ struct SettingsView: View {
                 Text("Saved in Keychain when you tap Save Settings.")
             }
 
+            Section("Remote Mac") {
+                TextField("Host ID", text: $settings.hostID)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("Device ID", text: $settings.remoteDeviceID)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                SecureField("256-bit encryption key", text: $settings.e2eeKey)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(.body, design: .monospaced))
+                Button("Paste Encryption Key") {
+                    settings.e2eeKey = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    statusMessage = settings.e2eeKey.isEmpty ? "Pasteboard is empty." : "Encryption key pasted."
+                }
+            }
+
             Section("Notifications") {
                 Picker("Push notifications", selection: $settings.pushMode) {
                     ForEach(PushMode.allCases) { mode in

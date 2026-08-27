@@ -50,17 +50,28 @@ class RelayHub:
         return peer
 
     async def disconnect(self, role: Role, host_id: str, device_id: str, peer: RelayPeer) -> None:
+        opposite = None
         async with self._lock:
             key = (host_id, device_id)
             pair = self._pairs.get(key)
             if not pair:
                 return
             if role == "host" and pair.host is peer:
+                opposite = pair.device
                 pair.host = None
-            elif role == "device" and pair.device is peer:
                 pair.device = None
-            if pair.host is None and pair.device is None:
-                self._pairs.pop(key, None)
+            elif role == "device" and pair.device is peer:
+                opposite = pair.host
+                pair.device = None
+                pair.host = None
+            else:
+                return
+            self._pairs.pop(key, None)
+        # E2EE keys are connection-scoped. Never leave the opposite role on an
+        # old session after its peer disappears; force both sides to establish
+        # a fresh session ID and salt instead of forwarding stale ciphertext.
+        if opposite and opposite.socket.client_state == WebSocketState.CONNECTED:
+            await opposite.socket.close(code=4010, reason="peer session ended")
 
     async def run(self, role: Role, host_id: str, device_id: str, peer: RelayPeer) -> None:
         while True:

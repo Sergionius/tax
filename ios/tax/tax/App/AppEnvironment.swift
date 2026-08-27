@@ -10,22 +10,34 @@ enum AppEnvironment {
         let shouldFail = arguments.contains("--mock-network-error")
         let shouldFailReply = arguments.contains("--mock-reply-error")
         let preconfigured = arguments.contains("--mock-configured") || shouldFail || shouldFailReply || mockTaskID != nil
+        let preferences = MemoryPreferencesStore(values: [
+            "tax.serverURL": argument(after: "--mock-server-url") ?? "https://tax.138-249-127-23.nip.io",
+            "tax.hostID": argument(after: "--mock-host-id") ?? "mac-main",
+            "tax.remoteDeviceID": argument(after: "--mock-device-id") ?? "iphone-main"
+        ])
         return SettingsStore(
-            preferences: MemoryPreferencesStore(),
-            keychain: MemoryKeychainStore(apiKey: preconfigured ? "ui-test-key" : nil),
+            preferences: preferences,
+            keychain: MemoryKeychainStore(
+                apiKey: preconfigured ? (argument(after: "--mock-api-key") ?? "ui-test-key") : nil,
+                e2eeKey: argument(after: "--mock-e2ee-key")
+            ),
             serviceFactory: { _, _ in MockTaskService(shouldFail: shouldFail, shouldFailReply: shouldFailReply) }
         )
     }
 
-    static var mockTaskID: String? {
-        guard let index = arguments.firstIndex(of: "--mock-task-id"), arguments.indices.contains(index + 1) else { return nil }
+    static var mockTaskID: String? { argument(after: "--mock-task-id") }
+
+    private static func argument(after flag: String) -> String? {
+        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else { return nil }
         return arguments[index + 1]
     }
 }
 
 @MainActor
 private final class MemoryPreferencesStore: PreferencesStoring {
-    private var values: [String: String] = [:]
+    private var values: [String: String]
+
+    init(values: [String: String] = [:]) { self.values = values }
 
     func string(forKey key: String) -> String? { values[key] }
     func set(_ value: String, forKey key: String) { values[key] = value }
@@ -35,8 +47,10 @@ private final class MemoryPreferencesStore: PreferencesStoring {
 private final class MemoryKeychainStore: KeychainStoring {
     private var values: [String: String]
 
-    init(apiKey: String? = nil) {
-        values = apiKey.map { ["tax.apiKey": $0] } ?? [:]
+    init(apiKey: String? = nil, e2eeKey: String? = nil) {
+        values = [:]
+        values["tax.apiKey"] = apiKey
+        values["tax.remoteE2EEKey"] = e2eeKey
     }
 
     func save(key: String, value: String) throws { values[key] = value }

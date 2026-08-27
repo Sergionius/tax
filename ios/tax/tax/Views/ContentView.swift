@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        TaskListView()
+        WorkspaceListView()
             .preferredColorScheme(.light)
     }
 }
@@ -11,4 +11,5 @@ struct ContentView: View {
     ContentView()
         .environment(SettingsStore())
         .environment(AppState())
+        .environment(RemoteWorkspaceStore())
 }

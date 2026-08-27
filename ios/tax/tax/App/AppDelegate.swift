@@ -15,9 +15,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         configureNotificationCategories(center: center)
+        #if !targetEnvironment(simulator)
         if !AppEnvironment.isUITesting {
             requestPushAuthorization(application: application)
         }
+        #endif
         return true
     }
 

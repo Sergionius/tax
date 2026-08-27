@@ -33,6 +33,22 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(preferences.values["tax.pushMode"], "all")
     }
 
+    func testRemoteConfigurationLoadsSecretsFromKeychainAndSavesRoutingIDs() {
+        let preferences = PreferencesMock(values: ["tax.hostID": "mac-1", "tax.remoteDeviceID": "phone-1"])
+        let keychain = KeychainMock(values: ["tax.apiKey": "api", "tax.remoteE2EEKey": "e2ee"])
+        let store = SettingsStore(preferences: preferences, keychain: keychain)
+
+        XCTAssertEqual(store.remoteConfiguration?.hostID, "mac-1")
+        XCTAssertEqual(store.remoteConfiguration?.deviceID, "phone-1")
+        XCTAssertEqual(store.remoteConfiguration?.e2eeKey, "e2ee")
+        store.e2eeKey = " replacement "
+        store.hostID = "mac-2"
+        XCTAssertTrue(store.save())
+        XCTAssertEqual(keychain.values["tax.remoteE2EEKey"], "replacement")
+        XCTAssertEqual(preferences.values["tax.hostID"], "mac-2")
+        XCTAssertNil(preferences.values["tax.remoteE2EEKey"])
+    }
+
     func testInvalidatesCachedServiceWhenSettingsChange() {
         let factory = ServiceFactoryRecorder()
         let store = SettingsStore(

@@ -31,6 +31,16 @@ def test_relay_routes_binary_ciphertext_and_flushes_bounded_offline_queue(monkey
     assert main.relay_hub.connection_count() == 0
 
 
+def test_relay_closes_other_role_when_e2ee_session_peer_disconnects(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        with client.websocket_connect("/relay/host?host_id=mac&device_id=phone", headers=AUTH) as host:
+            with client.websocket_connect("/relay/device?host_id=mac&device_id=phone", headers=AUTH) as device:
+                device.close()
+                with pytest.raises(WebSocketDisconnect) as closed:
+                    host.receive_bytes()
+                assert closed.value.code == 4010
+
+
 def test_relay_rejects_unauthorized_invalid_and_plaintext_connections(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         with pytest.raises(WebSocketDisconnect) as unauthorized:

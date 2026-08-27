@@ -1,0 +1,39 @@
+import Foundation
+import Testing
+@testable import tax
+
+struct RemoteProtocolTests {
+    @Test func cryptoMatchesPythonContractFixture() throws {
+        let secret = Data(base64Encoded: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=")!
+        let sessionID = Data(base64Encoded: "AAECAwQFBgcICQoLDA0ODw==")!
+        let salt = Data(base64Encoded: "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=")!
+        let session = try RemoteCryptoSession(secret: secret, hostID: "mac", deviceID: "phone", sessionID: sessionID, salt: salt)
+
+        let encrypted = try session.encrypt(channel: 1, plaintext: Data("hello".utf8))
+        #expect(encrypted.base64EncodedString() == "AQEAAAAAAAAAAHsQ2uO95kMq2fPCu3n5MHwVQM0Rpg==")
+
+        let hostFrame = Data(base64Encoded: "AQEAAAAAAAAAAP5DcaO4tdwqQGPIXbld2wZcRMh56A==")!
+        let (channel, plaintext) = try session.decrypt(hostFrame)
+        #expect(channel == 1)
+        #expect(String(decoding: plaintext, as: UTF8.self) == "world")
+        #expect(throws: (any Error).self) { try session.decrypt(hostFrame) }
+    }
+
+    @Test func terminalFrameRejectsWrongVersionAndDecodesHeader() throws {
+        var frame = Data([1, 2, 0, 0])
+        frame.append(contentsOf: [0, 0, 0, 7])
+        frame.append(contentsOf: [0, 0, 0, 0, 0, 0, 0, 3])
+        frame.append(contentsOf: [0, 0, 0, 0, 0, 0, 0, 42])
+        frame.append(Data("ansi".utf8))
+
+        let decoded = try RemoteTerminalFrame(data: frame)
+        #expect(decoded.opcode == .output)
+        #expect(decoded.streamID == 7)
+        #expect(decoded.generation == 3)
+        #expect(decoded.sequence == 42)
+        #expect(decoded.payload == Data("ansi".utf8))
+
+        frame[0] = 2
+        #expect(throws: RemoteClientError.self) { try RemoteTerminalFrame(data: frame) }
+    }
+}

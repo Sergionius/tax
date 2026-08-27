@@ -5,6 +5,7 @@ struct TaxApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var settingsStore = AppEnvironment.makeSettingsStore()
     @State private var appState = AppState()
+    @State private var remoteStore = RemoteWorkspaceStore()
     private let pendingTasks = PendingTaskStore()
 
     var body: some Scene {
@@ -12,6 +13,7 @@ struct TaxApp: App {
             ContentView()
                 .environment(settingsStore)
                 .environment(appState)
+                .environment(remoteStore)
                 .onAppear {
                     configureDelegateService()
                     consumePendingTaskIfNeeded()
@@ -19,6 +21,7 @@ struct TaxApp: App {
                 }
                 .onChange(of: settingsStore.apiKey) { _, _ in configureDelegateService() }
                 .onChange(of: settingsStore.serverURL) { _, _ in configureDelegateService() }
+                .onChange(of: settingsStore.e2eeKey) { _, _ in remoteStore.disconnect() }
                 .onReceive(NotificationCenter.default.publisher(for: .taxDeviceTokenUpdated)) { notification in
                     if let token = notification.object as? String {
                         settingsStore.saveDeviceToken(token)

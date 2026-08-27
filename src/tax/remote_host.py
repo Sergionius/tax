@@ -133,7 +133,10 @@ class RemoteHost:
             return {"workspaces": [asdict(item) for item in self.runtime.list_workspaces()]}
         if request.type is MessageType.TERMINAL_LIST:
             workspace_id = payload.get("workspace_id")
-            return {"terminals": [asdict(item) for item in self.runtime.list_terminals(workspace_id)]}
+            return {
+                "workspace_id": workspace_id,
+                "terminals": [asdict(item) for item in self.runtime.list_terminals(workspace_id)],
+            }
         if request.type is MessageType.TERMINAL_SUBSCRIBE:
             return self._subscribe(str(payload["terminal_id"]))
         if request.type is MessageType.TERMINAL_INPUT:
