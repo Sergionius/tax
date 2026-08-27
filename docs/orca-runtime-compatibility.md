@@ -53,6 +53,16 @@ scripts/orca-runtime-probe.cjs stream \
 
 The probe dynamically loads protocol helpers shipped by the installed Orca build. This is deliberate: a missing helper or changed wire contract produces an explicit compatibility failure instead of silently parsing the wrong protocol.
 
+## Mac runtime adapter
+
+`src/tax/orca_runtime.py` is the stable boundary consumed by the future remote host. It exposes tax-owned workspace, terminal, event, and diagnostic models while containing all private Orca method names and response mapping.
+
+Control operations use authenticated local Runtime RPC. Terminal subscriptions use the packaged `orca-runtime-terminal-bridge.cjs`, which maintains Orca's E2EE WebSocket and multiplexes snapshot, incremental output, input, resize, and resnapshot frames. The bridge is shipped inside the Python wheel; `scripts/orca-runtime-terminal-bridge.cjs` is a development wrapper.
+
+The adapter requires a dedicated Orca pairing code for streaming. Create it through Orca's pairing UI and save it in a mode-0600 file. Do not copy tokens directly from Orca's private device registry. This credential authenticates tax-agent to the local Orca Runtime and is separate from the tax E2EE key introduced in Phase 2.
+
+Mutating one-shot RPC calls are never retried because a disconnected response has an ambiguous outcome. Read-only calls use bounded exponential backoff. Stream reconnect belongs to the remote host lifecycle: discard the old generation and request a fresh subscription/snapshot rather than replaying input.
+
 ## Update smoke test
 
 After every Orca update:
