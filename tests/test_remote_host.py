@@ -1,6 +1,7 @@
 import base64
 import time
 
+from tax.file_service import ScopedFileService
 from tax.orca_runtime import RuntimeDiagnostic, Terminal, TerminalEvent, Workspace
 from tax.remote_host import CONTROL_CHANNEL, TERMINAL_CHANNEL, RemoteHost
 from tax.remote_protocol import ControlMessage, MessageType, TerminalFrame, TerminalOpcode
@@ -169,6 +170,33 @@ def test_remote_host_control_input_acknowledges_after_runtime_accepts():
 
     assert runtime.input == [("term", b"pi\r")]
     assert response_messages(connection)[-1].payload == {"ok": True, "accepted": True}
+
+
+def test_remote_host_file_round_trip_and_conflict(tmp_path):
+    path = tmp_path / "README.md"
+    path.write_text("first")
+    runtime = FakeRuntime()
+    connection = FakeConnection()
+    host = RemoteHost(runtime, connection, ScopedFileService(lambda: {"workspace": tmp_path}))
+
+    host._handle_control(request(MessageType.FILE_LIST, {"workspace_id": "workspace", "path": ""}))
+    host._handle_control(request(MessageType.FILE_READ, {"workspace_id": "workspace", "path": "README.md"}))
+    messages = response_messages(connection)
+    assert messages[0].payload["entries"][0]["name"] == "README.md"
+    read = messages[1].payload
+    host._handle_control(
+        request(
+            MessageType.FILE_WRITE,
+            {
+                "workspace_id": "workspace",
+                "path": "README.md",
+                "data_b64": base64.b64encode(b"second").decode(),
+                "expected_revision": read["revision"],
+            },
+            operation_id="write-once",
+        )
+    )
+    assert path.read_text() == "second"
 
 
 def test_remote_host_rejects_plaintext_and_unknown_control_messages():

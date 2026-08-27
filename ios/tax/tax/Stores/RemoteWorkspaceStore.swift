@@ -8,6 +8,11 @@ final class RemoteWorkspaceStore {
     var workspaces: [RemoteWorkspace] = []
     var terminals: [String: [RemoteTerminal]] = [:]
     var terminalBuffers: [UInt32: Data] = [:]
+    var fileEntries: [String: [RemoteFileEntry]] = [:]
+    var fileSearchResults: [RemoteFileEntry] = []
+    var openDocument: RemoteFileDocument?
+    var fileConflict = false
+    var isSavingFile = false
     var errorMessage: String?
     var activeStreamID: UInt32?
     var activeGeneration: UInt64?
@@ -112,6 +117,61 @@ final class RemoteWorkspaceStore {
         } catch { errorMessage = error.localizedDescription }
     }
 
+    func loadFiles(workspaceID: String, path: String = "") async {
+        do {
+            try await client?.sendControl(
+                type: "file.list",
+                payload: ["workspace_id": .string(workspaceID), "path": .string(path), "limit": .int(200)]
+            )
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    func searchFiles(workspaceID: String, query: String) async {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            fileSearchResults = []
+            return
+        }
+        do {
+            try await client?.sendControl(
+                type: "file.search",
+                payload: ["workspace_id": .string(workspaceID), "query": .string(query), "limit": .int(100)]
+            )
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    func openFile(workspaceID: String, path: String) async {
+        fileConflict = false
+        do {
+            try await client?.sendControl(type: "file.read", payload: ["workspace_id": .string(workspaceID), "path": .string(path)])
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    func updateOpenDocument(text: String) {
+        openDocument?.data = Data(text.utf8)
+    }
+
+    func saveOpenDocument(force: Bool = false) async {
+        guard let document = openDocument else { return }
+        isSavingFile = true
+        fileConflict = false
+        do {
+            try await client?.sendControl(
+                type: "file.write",
+                operationID: UUID().uuidString,
+                payload: [
+                    "workspace_id": .string(document.workspaceID),
+                    "path": .string(document.path),
+                    "data_b64": .string(document.data.base64EncodedString()),
+                    "expected_revision": .string(document.revision),
+                    "force": .bool(force)
+                ]
+            )
+        } catch {
+            isSavingFile = false
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func disconnect() {
         eventTask?.cancel()
         eventTask = nil
@@ -157,7 +217,11 @@ final class RemoteWorkspaceStore {
             return
         }
         guard message.type == "operation.result" else {
-            if message.type == "protocol.error" { errorMessage = message.payload.value["message"]?.string }
+            if message.type == "protocol.error" {
+                isSavingFile = false
+                if message.payload.value["code"]?.string == "file_conflict" { fileConflict = true }
+                else { errorMessage = message.payload.value["message"]?.string }
+            }
             return
         }
         let payload = message.payload.value
@@ -166,6 +230,28 @@ final class RemoteWorkspaceStore {
             let decoded = decode(values, as: RemoteTerminal.self)
             if let workspaceID = payload["workspace_id"]?.string ?? decoded.first?.workspaceID {
                 terminals[workspaceID] = decoded
+            }
+        }
+        if let values = payload["entries"]?.array,
+           let workspaceID = payload["workspace_id"]?.string {
+            let entries = decode(values, as: RemoteFileEntry.self)
+            if payload["query"]?.string != nil { fileSearchResults = entries }
+            else { fileEntries[fileKey(workspaceID: workspaceID, path: payload["path"]?.string ?? "")] = entries }
+        }
+        if let workspaceID = payload["workspace_id"]?.string,
+           let path = payload["path"]?.string,
+           let revision = payload["revision"]?.string {
+            if payload["saved"]?.bool == true, var document = openDocument, document.workspaceID == workspaceID, document.path == path {
+                isSavingFile = false
+                document.revision = revision
+                document.savedData = document.data
+                openDocument = document
+            } else if let encoded = payload["data_b64"]?.string,
+                      let data = Data(base64Encoded: encoded),
+                      let kind = payload["kind"]?.string {
+                openDocument = RemoteFileDocument(
+                    workspaceID: workspaceID, path: path, kind: kind, data: data, revision: revision, savedData: data
+                )
             }
         }
         if let streamID = payload["stream_id"]?.int, let generation = payload["generation"]?.int {
@@ -183,6 +269,12 @@ final class RemoteWorkspaceStore {
         default: break
         }
     }
+
+    func files(workspaceID: String, path: String) -> [RemoteFileEntry] {
+        fileEntries[fileKey(workspaceID: workspaceID, path: path)] ?? []
+    }
+
+    private func fileKey(workspaceID: String, path: String) -> String { "\(workspaceID):\(path)" }
 
     private func decode<T: Decodable>(_ values: [JSONValue], as type: T.Type) -> [T] {
         values.compactMap { value in

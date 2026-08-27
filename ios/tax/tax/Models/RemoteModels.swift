@@ -44,6 +44,33 @@ struct RemoteTerminal: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+struct RemoteFileEntry: Codable, Identifiable, Hashable, Sendable {
+    let name: String
+    let path: String
+    let isDirectory: Bool
+    let size: Int?
+
+    var id: String { path }
+
+    enum CodingKeys: String, CodingKey {
+        case name, path, size
+        case isDirectory = "is_directory"
+    }
+}
+
+struct RemoteFileDocument: Identifiable, Equatable, Sendable {
+    let workspaceID: String
+    let path: String
+    let kind: String
+    var data: Data
+    var revision: String
+    var savedData: Data
+
+    var id: String { "\(workspaceID):\(path)" }
+    var isModified: Bool { data != savedData }
+    var text: String { String(data: data, encoding: .utf8) ?? "" }
+}
+
 struct RemoteControlEnvelope: Codable, Sendable {
     let version: Int
     let type: String
@@ -100,6 +127,7 @@ indirect enum JSONValue: Codable, Sendable {
 
     var string: String? { if case let .string(value) = self { value } else { nil } }
     var int: Int? { if case let .int(value) = self { value } else { nil } }
+    var bool: Bool? { if case let .bool(value) = self { value } else { nil } }
     var object: [String: JSONValue]? { if case let .object(value) = self { value } else { nil } }
     var array: [JSONValue]? { if case let .array(value) = self { value } else { nil } }
 }

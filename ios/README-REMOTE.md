@@ -19,3 +19,5 @@ xcodebuild build-for-testing \
 `RemoteProtocolTests` contains the same deterministic crypto contract vector as Python and validates the terminal binary header. End-to-end relay/Orca validation remains available through `tax remote-smoke --start-pi`.
 
 Phase 3 acceptance was also exercised through the Simulator UI against a live local relay and Orca Runtime: the app loaded open workspaces, opened an existing TUI with ANSI fidelity, created a terminal, typed `pi`, pressed the accessory Enter key, rendered Pi, and sent Ctrl-C.
+
+Phase 4 adds a workspace-scoped file browser, bounded filename search, UTF-8 editor, native Markdown preview, and read-only image preview. Saves carry the revision returned by the Mac; conflicts require an explicit Reload or Overwrite choice, and leaving a modified editor requires discard confirmation.

@@ -28,7 +28,11 @@ struct WorkspaceView: View {
                 }
             }
             Section("Files") {
-                ContentUnavailableView("Files arrive in Phase 4", systemImage: "folder")
+                NavigationLink {
+                    FileBrowserView(workspaceID: workspace.id, path: "")
+                } label: {
+                    Label("Browse workspace files", systemImage: "folder")
+                }
             }
         }
         .navigationTitle(workspace.displayName)

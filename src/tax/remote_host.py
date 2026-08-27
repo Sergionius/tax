@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from tax.e2ee import decode_key
+from tax.file_service import FileServiceError, ScopedFileService
 from tax.logging_utils import configure_logging, log_event
 from tax.orca_runtime import OrcaRuntimeAdapter, OrcaRuntimeError, TerminalEventStream, WorkspaceRuntime
 from tax.relay_client import EncryptedRelayConnection
@@ -47,9 +48,17 @@ class OperationDeduplicator:
 
 
 class RemoteHost:
-    def __init__(self, runtime: WorkspaceRuntime, connection: EncryptedRelayConnection):
+    def __init__(
+        self,
+        runtime: WorkspaceRuntime,
+        connection: EncryptedRelayConnection,
+        file_service: Optional[ScopedFileService] = None,
+    ):
         self.runtime = runtime
         self.connection = connection
+        self.file_service = file_service or ScopedFileService(
+            lambda: {workspace.id: Path(workspace.path) for workspace in self.runtime.list_workspaces()}
+        )
         self.operations = OperationDeduplicator()
         self._subscriptions: dict[int, TerminalEventStream] = {}
         self._subscription_threads: dict[int, threading.Thread] = {}
@@ -112,8 +121,8 @@ class RemoteHost:
                 operation_id=request.operation_id,
                 payload={"ok": True, **response_payload},
             ).encode()
-        except (OrcaRuntimeError, ValueError, KeyError, TypeError) as error:
-            code = error.code if isinstance(error, OrcaRuntimeError) else "invalid_request"
+        except (OrcaRuntimeError, FileServiceError, ValueError, KeyError, TypeError) as error:
+            code = error.code if isinstance(error, (OrcaRuntimeError, FileServiceError)) else "invalid_request"
             response = ControlMessage(
                 type=MessageType.PROTOCOL_ERROR,
                 request_id=request.request_id,
@@ -160,6 +169,50 @@ class RemoteHost:
             self._close_terminal_subscription(terminal_id)
             self.runtime.close_terminal(terminal_id)
             return {"accepted": True}
+        if request.type is MessageType.FILE_LIST:
+            entries = self.file_service.list(
+                str(payload["workspace_id"]),
+                str(payload.get("path") or ""),
+                offset=int(payload.get("offset") or 0),
+                limit=int(payload.get("limit") or 100),
+            )
+            return {
+                "workspace_id": str(payload["workspace_id"]),
+                "entries": [asdict(entry) for entry in entries],
+                "path": str(payload.get("path") or ""),
+            }
+        if request.type is MessageType.FILE_SEARCH:
+            entries = self.file_service.search(
+                str(payload["workspace_id"]), str(payload["query"]), limit=int(payload.get("limit") or 100)
+            )
+            return {
+                "workspace_id": str(payload["workspace_id"]),
+                "entries": [asdict(entry) for entry in entries],
+                "query": str(payload["query"]),
+            }
+        if request.type is MessageType.FILE_READ:
+            content = self.file_service.read(str(payload["workspace_id"]), str(payload["path"]))
+            return {
+                "workspace_id": str(payload["workspace_id"]),
+                "path": content.path,
+                "kind": content.kind,
+                "data_b64": base64.b64encode(content.data).decode("ascii"),
+                "revision": content.revision,
+            }
+        if request.type is MessageType.FILE_WRITE:
+            revision = self.file_service.write(
+                str(payload["workspace_id"]),
+                str(payload["path"]),
+                base64.b64decode(str(payload["data_b64"]), validate=True),
+                expected_revision=payload.get("expected_revision"),
+                force=payload.get("force") is True,
+            )
+            return {
+                "workspace_id": str(payload["workspace_id"]),
+                "path": str(payload["path"]),
+                "revision": revision,
+                "saved": True,
+            }
         raise ValueError(f"unsupported message type: {request.type}")
 
     def _subscribe(self, terminal_id: str) -> dict[str, Any]:

@@ -31,6 +31,14 @@ Supported types are defined by `MessageType` in `src/tax/remote_protocol.py`, co
 
 Terminal binary frames have a 24-byte network-order header: protocol version, opcode, reserved bytes, stream ID, generation, sequence, then payload. Generation and sequence changes force resnapshot rather than replay. The shared fixture is `tests/fixtures/remote-protocol-v1.json`.
 
+## Scoped file operations
+
+`file.list`, `file.search`, `file.read`, and `file.write` accept a `workspace_id` from the current Orca inventory plus a relative path. The Mac resolves every path against the active workspace root, rejects absolute paths, traversal, and escaping symlinks, and revokes access as soon as the workspace closes. Filename search is bounded and skips common generated directories.
+
+Text reads and writes require UTF-8. Images are read-only previews. A read returns a SHA-256 revision; a write is atomic and succeeds only when `expected_revision` still matches. A conflict returns `file_conflict`. Overwrite requires a new request with explicit `force: true`; the client never silently replaces the Mac version.
+
+The relay still sees ciphertext only and does not persist file names or contents.
+
 ## Mac host and CLI smoke
 
 Start the persistent Mac host with a dedicated Orca runtime pairing credential:
@@ -57,4 +65,6 @@ The smoke creates a real Orca terminal, subscribes to its initial snapshot, send
 - control message: 256 KiB;
 - encrypted WebSocket frame: 8 MiB;
 - relay offline queue: 64 frames per source connection;
+- directory page: 200 entries; filename search: 200 results;
+- editable UTF-8 text: 2 MiB; image preview: 10 MiB;
 - terminal stream and operation retries remain conservative: ambiguous input is never replayed.
