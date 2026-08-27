@@ -112,6 +112,33 @@ def test_push_modes_filter_apns_but_always_store_tasks(monkeypatch, tmp_path):
     assert len(tasks) == 4
 
 
+def test_push_enqueues_remote_deep_link_identifiers(monkeypatch, tmp_path):
+    sent = []
+
+    async def fake_send(*args):
+        sent.append(args)
+
+    monkeypatch.setattr(main, "send_apns", fake_send)
+    with make_client(monkeypatch, tmp_path) as client:
+        register(client, "token", "tax")
+        response = client.post(
+            "/push",
+            headers=AUTH,
+            json={
+                "device_token": "token",
+                "title": "done",
+                "body": "open terminal",
+                "app": "tax",
+                "host_id": "mac-custom",
+                "orca_worktree_id": "workspace-1",
+                "orca_terminal_handle": "terminal-1",
+            },
+        )
+        assert response.status_code == 200
+
+    assert sent[0][-3:] == ("mac-custom", "workspace-1", "terminal-1")
+
+
 def test_push_stores_metadata_and_reply_flow(monkeypatch, tmp_path):
     async def fake_send(*_args):
         return None
@@ -329,10 +356,19 @@ def test_apns_uses_sandbox_host_and_reports_reason(monkeypatch, tmp_path, caplog
 
     monkeypatch.setattr(main.apns.httpx, "AsyncClient", lambda **_kwargs: Client())
     with caplog.at_level("WARNING"):
-        asyncio.run(main.send_apns("device-secret", "title", "body", "task-1"))
+        asyncio.run(
+            main.send_apns(
+                "device-secret", "title", "body", "task-1", "tax", "pi-extension", "pi", "mac", "workspace", "terminal"
+            )
+        )
 
     assert calls[0][0] == "https://api.development.push.apple.com/3/device/device-secret"
     assert calls[0][1]["headers"]["apns-topic"] == "bundle-id"
+    assert calls[0][1]["json"]["aps"]["category"] == "REMOTE_WORKSPACE"
+    assert "task_id" not in calls[0][1]["json"]
+    assert calls[0][1]["json"]["host_id"] == "mac"
+    assert calls[0][1]["json"]["workspace_id"] == "workspace"
+    assert calls[0][1]["json"]["terminal_id"] == "terminal"
     assert "Unregistered" in caplog.text
     assert "device-secret" not in caplog.text
     assert "provider-token" not in caplog.text

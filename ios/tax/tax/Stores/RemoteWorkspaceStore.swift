@@ -172,6 +172,24 @@ final class RemoteWorkspaceStore {
         }
     }
 
+    func suspend() {
+        eventTask?.cancel()
+        eventTask = nil
+        if let client { Swift.Task { await client.close() } }
+        client = nil
+        if configuration != nil { connectionState = .reconnecting }
+    }
+
+    func resume(settings: SettingsStore) async {
+        guard client == nil else { return }
+        if configuration == nil { configuration = settings.remoteConfiguration }
+        guard let configuration else {
+            connectionState = .macOffline
+            return
+        }
+        await establish(configuration: configuration)
+    }
+
     func disconnect() {
         eventTask?.cancel()
         eventTask = nil
@@ -181,6 +199,7 @@ final class RemoteWorkspaceStore {
         activeTerminalID = nil
         activeStreamID = nil
         activeGeneration = nil
+        isSavingFile = false
     }
 
     private func consume(client: RemoteClient) async {
@@ -209,6 +228,13 @@ final class RemoteWorkspaceStore {
 
     private func apply(_ message: RemoteControlEnvelope) {
         if message.type == "host.hello" {
+            if let diagnostic = message.payload.value["diagnostic"]?.object,
+               diagnostic["state"]?.string == "incompatible" {
+                connectionState = .incompatible
+                let missing = diagnostic["missing_capabilities"]?.array?.compactMap(\.string).joined(separator: ", ") ?? "unknown capabilities"
+                errorMessage = "This Orca version is incompatible. Missing: \(missing). Update tax or use a supported Orca build."
+                return
+            }
             connectionState = .online
             Swift.Task {
                 try? await client?.sendControl(type: "workspace.list")

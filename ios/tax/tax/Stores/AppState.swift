@@ -1,19 +1,15 @@
-import Foundation
 import Observation
 
 @MainActor
 @Observable
 final class AppState {
-    var navigationPath: [String] = []
-    var refreshToken = UUID()
+    var navigationPath: [RemoteNavigationRoute] = []
+    var pendingDestination: RemoteDeepLink?
 
-    func openTask(id: String) {
-        guard !id.isEmpty else { return }
-        guard navigationPath.last != id else { return }
-        navigationPath.append(id)
+    func open(_ destination: RemoteDeepLink) {
+        pendingDestination = destination
+        if destination.workspaceID == nil { navigationPath = [] }
     }
 
-    func requestRefresh() {
-        refreshToken = UUID()
-    }
+    func finishRouting() { pendingDestination = nil }
 }

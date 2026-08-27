@@ -1,30 +1,18 @@
 import Foundation
 
 struct PushRouter {
-    enum Action: Equatable {
-        case none
-        case openTask(String)
-        case reply(taskID: String, text: String)
+    func destination(from userInfo: [AnyHashable: Any]) -> RemoteDeepLink? {
+        let nested = userInfo["remote"] as? [String: Any]
+        guard let hostID = string("host_id", in: userInfo, nested: nested), !hostID.isEmpty else { return nil }
+        let workspaceID = string("workspace_id", in: userInfo, nested: nested)
+        let terminalID = string("terminal_id", in: userInfo, nested: nested)
+        guard terminalID == nil || workspaceID != nil else { return nil }
+        return RemoteDeepLink(hostID: hostID, workspaceID: workspaceID, terminalID: terminalID)
     }
 
-    func action(
-        from userInfo: [AnyHashable: Any],
-        actionIdentifier: String? = nil,
-        replyText: String? = nil
-    ) -> Action {
-        guard let taskID = taskID(from: userInfo), !taskID.isEmpty else { return .none }
-        if actionIdentifier == "REPLY",
-           let replyText,
-           !replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return .reply(taskID: taskID, text: replyText)
-        }
-        return .openTask(taskID)
-    }
-
-    func taskID(from userInfo: [AnyHashable: Any]) -> String? {
-        if let taskID = userInfo["task_id"] as? String { return taskID }
-        if let taskID = userInfo["taskId"] as? String { return taskID }
-        if let aps = userInfo["aps"] as? [String: Any], let taskID = aps["task_id"] as? String { return taskID }
-        return nil
+    private func string(_ key: String, in userInfo: [AnyHashable: Any], nested: [String: Any]?) -> String? {
+        let value = (userInfo[key] as? String) ?? (nested?[key] as? String)
+        let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized?.isEmpty == false ? normalized : nil
     }
 }

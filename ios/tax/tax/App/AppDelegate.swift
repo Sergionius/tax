@@ -3,10 +3,10 @@ import UserNotifications
 
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    var taskService: (any TaskServing)?
+    var registrationService: (any DeviceRegistering)?
 
     private let router = PushRouter()
-    private let pendingTasks = PendingTaskStore()
+    private let pendingDestinations = PendingRemoteDestinationStore()
 
     func application(
         _ application: UIApplication,
@@ -14,11 +14,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        configureNotificationCategories(center: center)
         #if !targetEnvironment(simulator)
-        if !AppEnvironment.isUITesting {
-            requestPushAuthorization(application: application)
-        }
+        if !AppEnvironment.isUITesting { requestPushAuthorization(application: application) }
         #endif
         return true
     }
@@ -26,13 +23,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
         NotificationCenter.default.post(name: .taxDeviceTokenUpdated, object: token)
-
-        let savedSettings = SettingsStore()
-        guard let service = taskService ?? savedSettings.configuredService else { return }
-        let pushMode = savedSettings.pushMode
-        Swift.Task {
-            try? await service.registerDevice(token: token, pushMode: pushMode)
-        }
+        let settings = SettingsStore()
+        guard let service = registrationService ?? settings.configuredService else { return }
+        Swift.Task { try? await service.registerDevice(token: token, pushMode: settings.pushMode) }
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
@@ -44,7 +37,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        refreshTasks()
         completionHandler([.banner, .list, .sound, .badge])
     }
 
@@ -53,13 +45,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let replyText = (response as? UNTextInputNotificationResponse)?.userText
-        let action = router.action(
-            from: response.notification.request.content.userInfo,
-            actionIdentifier: response.actionIdentifier,
-            replyText: replyText
-        )
-        handle(action)
+        open(router.destination(from: response.notification.request.content.userInfo))
         completionHandler()
     }
 
@@ -68,67 +54,28 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        refreshTasks()
+        guard let destination = router.destination(from: userInfo) else {
+            completionHandler(.noData)
+            return
+        }
+        pendingDestinations.save(destination)
+        NotificationCenter.default.post(name: .taxOpenRemoteDestination, object: destination)
         completionHandler(.newData)
     }
 
-    func registerForRemoteNotifications() {
-        UIApplication.shared.registerForRemoteNotifications()
-    }
+    func registerForRemoteNotifications() { UIApplication.shared.registerForRemoteNotifications() }
 
-    private func handle(_ action: PushRouter.Action) {
-        switch action {
-        case .none:
-            break
-        case let .openTask(taskID):
-            openTask(taskID)
-        case let .reply(taskID, text):
-            sendInlineReply(taskID: taskID, text: text)
-        }
-    }
-
-    private func openTask(_ taskID: String) {
-        pendingTasks.save(taskID)
-        NotificationCenter.default.post(name: .taxOpenTask, object: taskID)
-    }
-
-    private func refreshTasks() {
-        NotificationCenter.default.post(name: .taxRefreshTasks, object: nil)
-    }
-
-    private func sendInlineReply(taskID: String, text: String) {
-        pendingTasks.save(taskID)
-        let service = taskService ?? SettingsStore().configuredService
-        Swift.Task {
-            _ = try? await service?.sendReply(taskID: taskID, text: text)
-            await MainActor.run {
-                NotificationCenter.default.post(name: .taxOpenTask, object: taskID)
-                NotificationCenter.default.post(name: .taxRefreshTasks, object: nil)
-            }
-        }
+    private func open(_ destination: RemoteDeepLink?) {
+        guard let destination else { return }
+        pendingDestinations.save(destination)
+        NotificationCenter.default.post(name: .taxOpenRemoteDestination, object: destination)
     }
 
     private func requestPushAuthorization(application: UIApplication) {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
-            if let error {
-                print("Push authorization failed: \(error.localizedDescription)")
-            }
+            if let error { print("Push authorization failed: \(error.localizedDescription)") }
             guard granted else { return }
-            Swift.Task { @MainActor in
-                application.registerForRemoteNotifications()
-            }
+            Swift.Task { @MainActor in application.registerForRemoteNotifications() }
         }
-    }
-
-    private func configureNotificationCategories(center: UNUserNotificationCenter) {
-        let reply = UNTextInputNotificationAction(
-            identifier: "REPLY",
-            title: "Reply",
-            options: [.foreground],
-            textInputButtonTitle: "Open",
-            textInputPlaceholder: "Type a reply"
-        )
-        let category = UNNotificationCategory(identifier: "TASK", actions: [reply], intentIdentifiers: [], options: [])
-        center.setNotificationCategories([category])
     }
 }

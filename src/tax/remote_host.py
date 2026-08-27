@@ -37,6 +37,10 @@ class OperationDeduplicator:
         with self._lock:
             return self._results.get(operation_id)
 
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._results)
+
     def put(self, operation_id: str, result: bytes) -> None:
         with self._lock:
             if operation_id in self._results:
@@ -68,8 +72,19 @@ class RemoteHost:
         self._stop = threading.Event()
         self._next_stream_id = 1
         self._generation = 0
+        self._received_frames = 0
+        self._sent_frames = 0
+        self._sent_bytes = 0
 
     def run(self) -> None:
+        diagnostic = self.runtime.diagnostic()
+        log_event(
+            logger,
+            "remote_host_started",
+            runtime_state=diagnostic.state,
+            orca_version=diagnostic.orca_version or "unknown",
+            missing_capability_count=len(diagnostic.missing_capabilities),
+        )
         self._send_control(
             ControlMessage(
                 type=MessageType.HOST_HELLO,
@@ -80,6 +95,7 @@ class RemoteHost:
         try:
             while not self._stop.is_set():
                 channel, payload = self.connection.receive()
+                self._received_frames += 1
                 if channel == CONTROL_CHANNEL:
                     self._handle_control(payload)
                 elif channel == TERMINAL_CHANNEL:
@@ -99,6 +115,14 @@ class RemoteHost:
         self._stream_terminal_ids.clear()
         self._stream_generations.clear()
         self.connection.close()
+        log_event(
+            logger,
+            "remote_host_stopped",
+            received_frames=self._received_frames,
+            sent_frames=self._sent_frames,
+            sent_bytes=self._sent_bytes,
+            active_operation_cache=len(self.operations),
+        )
 
     def _handle_control(self, payload: bytes) -> None:
         try:
@@ -329,6 +353,8 @@ class RemoteHost:
     def _send(self, channel: int, payload: bytes) -> None:
         with self._send_lock:
             self.connection.send(channel, payload)
+            self._sent_frames += 1
+            self._sent_bytes += len(payload)
 
 
 def run_remote_host(

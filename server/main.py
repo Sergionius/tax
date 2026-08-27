@@ -27,6 +27,7 @@ except ModuleNotFoundError:  # Standalone deployment runs with server/ as the wo
 DB_PATH = os.environ.get("TAX_DB_PATH", "/data/tax.db")
 API_KEY = os.environ.get("TAX_API_KEY", "")
 TASK_REPLY_TTL_SECONDS = 30 * 60
+DEFAULT_REMOTE_HOST_ID = os.environ.get("TAX_REMOTE_HOST_ID", "mac-main")
 
 APNS_KEY_ID = os.environ.get("TAX_APNS_KEY_ID", "")
 APNS_TEAM_ID = os.environ.get("TAX_APNS_TEAM_ID", "")
@@ -104,6 +105,7 @@ class PushPayload(BaseModel):
     source: Optional[str] = ""
     agent: Optional[str] = ""
     app: Optional[str] = ""
+    host_id: Optional[str] = Field(default="", max_length=256)
     orca_terminal_handle: Optional[str] = ""
     orca_worktree_id: Optional[str] = ""
     orca_tab_id: Optional[str] = ""
@@ -160,6 +162,9 @@ async def send_apns(
     app_name: str = "",
     source: str = "",
     agent: str = "",
+    host_id: str = "",
+    workspace_id: str = "",
+    terminal_id: str = "",
 ):
     config = apns.APNSConfig(
         key_id=APNS_KEY_ID,
@@ -168,7 +173,20 @@ async def send_apns(
         key_path=APNS_KEY_PATH,
         use_sandbox=APNS_USE_SANDBOX,
     )
-    result = await apns.send(config, logger, device_token, title, body, task_id, app_name, source, agent)
+    result = await apns.send(
+        config,
+        logger,
+        device_token,
+        title,
+        body,
+        task_id,
+        app_name,
+        source,
+        agent,
+        host_id,
+        workspace_id,
+        terminal_id,
+    )
     conn = None
     try:
         conn = db_conn()
@@ -310,6 +328,9 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
             payload.app or "",
             payload.source or "",
             payload.agent or "",
+            payload.host_id or DEFAULT_REMOTE_HOST_ID,
+            payload.orca_worktree_id or "",
+            payload.orca_terminal_handle or "",
         )
         log_event(logger, "apns_enqueued", task_id=task_id)
     else:

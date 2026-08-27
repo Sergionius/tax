@@ -60,6 +60,14 @@ tax remote-smoke --host-id mac-main --device-id iphone-main --start-pi
 
 The smoke creates a real Orca terminal, subscribes to its initial snapshot, sends a unique command, verifies its incremental output, optionally starts `pi`, sends Ctrl-C, and closes the fixture terminal. Input uses a stable `operation_id` and is acknowledged only after the Mac Runtime call succeeds. Ambiguous input is not automatically repeated.
 
+## Push deep links and app lifecycle
+
+APNs alerts carry only `host_id`, optional `workspace_id`, and optional `terminal_id` routing identifiers; the obsolete task/reply action is not exposed by the iOS app. A destination is persisted until SwiftUI consumes it. The app validates the host against its configuration and reports a closed workspace or terminal instead of navigating to stale state.
+
+The iOS app does not claim background WebSocket execution. Entering the background closes the relay connection; foreground activation creates a new E2EE session, refreshes inventory, and resubscribes the visible terminal for a fresh snapshot. Unacknowledged terminal input is still never replayed.
+
+Mac diagnostics log only protocol counters, Orca version/compatibility state, and capability counts. They do not log workspace paths, IDs, terminal output, input, file names, file contents, credentials, or encryption keys.
+
 ## Limits
 
 - control message: 256 KiB;

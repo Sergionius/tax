@@ -13,7 +13,7 @@ struct WorkspaceView: View {
         List {
             Section("Terminals") {
                 ForEach(store.terminals[workspace.id] ?? []) { terminal in
-                    NavigationLink(value: terminal) {
+                    NavigationLink(value: RemoteNavigationRoute.terminal(terminal)) {
                         Label {
                             VStack(alignment: .leading) {
                                 Text(terminal.title)
@@ -36,7 +36,6 @@ struct WorkspaceView: View {
             }
         }
         .navigationTitle(workspace.displayName)
-        .navigationDestination(for: RemoteTerminal.self) { TerminalView(terminal: $0) }
         .toolbar { Button { showingCreate = true } label: { Label("New terminal", systemImage: "plus") } }
         .task { await store.loadTerminals(workspaceID: workspace.id) }
         .alert("Create terminal", isPresented: $showingCreate) {

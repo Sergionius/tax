@@ -146,7 +146,7 @@ private final class KeychainMock: KeychainStoring {
 private final class ServiceFactoryRecorder {
     private(set) var creationCount = 0
 
-    func make(url: URL, key: String) -> any TaskServing {
+    func make(url: URL, key: String) -> any DeviceRegistering {
         creationCount += 1
         return ServiceStub()
     }

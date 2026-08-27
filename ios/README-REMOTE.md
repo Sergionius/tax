@@ -21,3 +21,5 @@ xcodebuild build-for-testing \
 Phase 3 acceptance was also exercised through the Simulator UI against a live local relay and Orca Runtime: the app loaded open workspaces, opened an existing TUI with ANSI fidelity, created a terminal, typed `pi`, pressed the accessory Enter key, rendered Pi, and sent Ctrl-C.
 
 Phase 4 adds a workspace-scoped file browser, bounded filename search, UTF-8 editor, native Markdown preview, and read-only image preview. Saves carry the revision returned by the Mac; conflicts require an explicit Reload or Overwrite choice, and leaving a modified editor requires discard confirmation.
+
+Phase 5 removes the task conversation/reply UI. Pushes now deep-link to a configured host, workspace, or terminal. Backgrounding intentionally closes the WebSocket; foregrounding negotiates a new encrypted session, refreshes inventory, and requests a fresh terminal snapshot rather than relying on unsupported background execution.

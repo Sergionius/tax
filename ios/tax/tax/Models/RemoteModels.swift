@@ -1,5 +1,16 @@
 import Foundation
 
+struct RemoteDeepLink: Codable, Equatable, Sendable {
+    let hostID: String
+    let workspaceID: String?
+    let terminalID: String?
+}
+
+enum RemoteNavigationRoute: Hashable, Sendable {
+    case workspace(RemoteWorkspace)
+    case terminal(RemoteTerminal)
+}
+
 enum RemoteConnectionState: String, Sendable {
     case connecting
     case online

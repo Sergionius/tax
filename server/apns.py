@@ -44,6 +44,9 @@ async def send(
     app_name: str = "",
     source: str = "",
     agent: str = "",
+    host_id: str = "",
+    workspace_id: str = "",
+    terminal_id: str = "",
 ) -> APNSResult:
     environment = "sandbox" if config.use_sandbox else "production"
     log_event(logger, "apns_send_started", task_id=task_id, token_configured=bool(device_token))
@@ -70,9 +73,11 @@ async def send(
             "alert": {"title": title, "body": body},
             "sound": "default",
             "badge": 1,
-            "category": "TASK",
+            "category": "REMOTE_WORKSPACE",
         },
-        "task_id": task_id,
+        "host_id": host_id,
+        "workspace_id": workspace_id,
+        "terminal_id": terminal_id,
         "app": app_name,
         "source": source,
         "agent": agent,

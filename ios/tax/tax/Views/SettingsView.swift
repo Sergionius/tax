@@ -4,7 +4,6 @@ import UserNotifications
 
 struct SettingsView: View {
     @Environment(SettingsStore.self) private var settings
-    @Environment(AppState.self) private var appState
     @State private var statusMessage: String?
     @State private var isCheckingHealth = false
     @State private var isRegistering = false
@@ -133,9 +132,6 @@ struct SettingsView: View {
                 Button("Save Settings") {
                     settings.save()
                     statusMessage = settings.lastSaveError ?? "Settings saved."
-                    if settings.lastSaveError == nil {
-                        appState.requestRefresh()
-                    }
                     if !settings.deviceToken.isEmpty {
                         registerSavedDeviceToken()
                     }

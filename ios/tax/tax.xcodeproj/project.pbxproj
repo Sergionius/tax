@@ -9,8 +9,7 @@
 /* Begin PBXBuildFile section */
 		1CDB1412BBB255443DA9AC5C /* TaxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A643606BA89A30B2F3ACBA65 /* TaxUITests.swift */; };
 		1FBE9D0B3179BECA35341093 /* tasks-nullable.json in Resources */ = {isa = PBXBuildFile; fileRef = B250159E60E8A11E3CD2CDF7 /* tasks-nullable.json */; };
-		2A014422306AFC73752FD26C /* ScreenStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3076510F55F4ED2CF36ED30 /* ScreenStoreTests.swift */; };
-		4E661EDA30E9DC01A1BE3BA0 /* TaskServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 259D9EFBEA33B0C737B6162F /* TaskServiceTests.swift */; };
+		4E661EDA30E9DC01A1BE3BA0 /* DeviceRegistrationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 259D9EFBEA33B0C737B6162F /* DeviceRegistrationServiceTests.swift */; };
 		5172F2F8F61B7C1FF937D5FD /* PushRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5763126DBA4E97A9D9A5F9A7 /* PushRoutingTests.swift */; };
 		5B25733F69F3A0E5553C48DA /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 899615913B28E2734271C4C7 /* Foundation.framework */; };
 		7E87271674070F4299BEF256 /* task-full.json in Resources */ = {isa = PBXBuildFile; fileRef = 9509B60C8FDDCBE680FBC46F /* task-full.json */; };
@@ -38,7 +37,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		259D9EFBEA33B0C737B6162F /* TaskServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TaskServiceTests.swift; sourceTree = "<group>"; };
+		259D9EFBEA33B0C737B6162F /* DeviceRegistrationServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceRegistrationServiceTests.swift; sourceTree = "<group>"; };
 		3D4265344A42B4E767C45525 /* ModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
 		5669ED4A77C43BE367CB1FD9 /* SettingsStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsStoreTests.swift; sourceTree = "<group>"; };
 		5763126DBA4E97A9D9A5F9A7 /* PushRoutingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PushRoutingTests.swift; sourceTree = "<group>"; };
@@ -49,7 +48,6 @@
 		A643606BA89A30B2F3ACBA65 /* TaxUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TaxUITests.swift; sourceTree = "<group>"; };
 		B250159E60E8A11E3CD2CDF7 /* tasks-nullable.json */ = {isa = PBXFileReference; includeInIndex = 1; name = "tasks-nullable.json"; path = "Fixtures/tasks-nullable.json"; sourceTree = "<group>"; };
 		B6A82E4D6F25FAE36CC710FC /* TestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
-		D3076510F55F4ED2CF36ED30 /* ScreenStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScreenStoreTests.swift; sourceTree = "<group>"; };
 		D44CB17A6C745A1CC77ABE6F /* taxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = taxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -117,9 +115,8 @@
 				B250159E60E8A11E3CD2CDF7 /* tasks-nullable.json */,
 				3D4265344A42B4E767C45525 /* ModelTests.swift */,
 				5763126DBA4E97A9D9A5F9A7 /* PushRoutingTests.swift */,
-				D3076510F55F4ED2CF36ED30 /* ScreenStoreTests.swift */,
 				5669ED4A77C43BE367CB1FD9 /* SettingsStoreTests.swift */,
-				259D9EFBEA33B0C737B6162F /* TaskServiceTests.swift */,
+				259D9EFBEA33B0C737B6162F /* DeviceRegistrationServiceTests.swift */,
 				B6A82E4D6F25FAE36CC710FC /* TestSupport.swift */,
 			);
 			name = taxTests;
@@ -297,9 +294,8 @@
 			files = (
 				8AF062126FE4122D368D6E68 /* ModelTests.swift in Sources */,
 				5172F2F8F61B7C1FF937D5FD /* PushRoutingTests.swift in Sources */,
-				2A014422306AFC73752FD26C /* ScreenStoreTests.swift in Sources */,
 				FCDF3CD854FC39A87147C2AA /* SettingsStoreTests.swift in Sources */,
-				4E661EDA30E9DC01A1BE3BA0 /* TaskServiceTests.swift in Sources */,
+				4E661EDA30E9DC01A1BE3BA0 /* DeviceRegistrationServiceTests.swift in Sources */,
 				E45D53B69E036C7B82E21566 /* TestSupport.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -341,6 +341,7 @@ export default function (pi: ExtensionAPI) {
         source: "pi-extension",
         agent: "pi",
         app: "tax",
+        host_id: process.env.TAX_HOST_ID?.trim() || "mac-main",
         orca_terminal_handle: orcaTerminalHandle,
         orca_worktree_id: process.env.ORCA_WORKTREE_ID?.trim() || process.env.ORCA_WORKSPACE_ID?.trim() || "",
         orca_tab_id: process.env.ORCA_TAB_ID?.trim() || "",

@@ -34,7 +34,7 @@ struct RemoteConfiguration: Sendable {
 @MainActor
 @Observable
 final class SettingsStore {
-    typealias ServiceFactory = (URL, String) -> any TaskServing
+    typealias ServiceFactory = (URL, String) -> any DeviceRegistering
 
     var apiKey: String {
         didSet { if apiKey != oldValue { cachedService = nil } }
@@ -59,7 +59,7 @@ final class SettingsStore {
     @ObservationIgnored private let keychain: any KeychainStoring
     @ObservationIgnored private let preferences: any PreferencesStoring
     @ObservationIgnored private let serviceFactory: ServiceFactory
-    @ObservationIgnored private var cachedService: (any TaskServing)?
+    @ObservationIgnored private var cachedService: (any DeviceRegistering)?
     @ObservationIgnored private let logger = Logger(subsystem: "ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp", category: "SettingsStore")
 
     private var normalizedAPIKey: String {
@@ -69,7 +69,7 @@ final class SettingsStore {
     init(
         defaults: UserDefaults = .standard,
         keychain: any KeychainStoring = SystemKeychainStore(),
-        serviceFactory: @escaping ServiceFactory = { url, key in TaskService(baseURL: url, apiKey: key) }
+        serviceFactory: @escaping ServiceFactory = { url, key in DeviceRegistrationService(baseURL: url, apiKey: key) }
     ) {
         self.keychain = keychain
         preferences = UserDefaultsPreferences(defaults: defaults)
@@ -95,7 +95,7 @@ final class SettingsStore {
     init(
         preferences: any PreferencesStoring,
         keychain: any KeychainStoring,
-        serviceFactory: @escaping ServiceFactory = { url, key in TaskService(baseURL: url, apiKey: key) }
+        serviceFactory: @escaping ServiceFactory = { url, key in DeviceRegistrationService(baseURL: url, apiKey: key) }
     ) {
         self.keychain = keychain
         self.preferences = preferences
@@ -176,7 +176,7 @@ final class SettingsStore {
         )
     }
 
-    var configuredService: (any TaskServing)? {
+    var configuredService: (any DeviceRegistering)? {
         let normalizedAPIKey = self.normalizedAPIKey
         guard !normalizedAPIKey.isEmpty,
               let url = URL(string: serverURL),
