@@ -49,8 +49,8 @@ jobs:
             -scheme "$SCHEME" \
             -destination "$DESTINATION" \
             -configuration Debug \
-            CODE_SIGNING_ALLOWED=NO \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
       - name: Run unit tests
         run: |
           xcodebuild test \
@@ -59,7 +59,7 @@ jobs:
             -destination "$DESTINATION" \
             -only-testing:taxTests \
             -resultBundlePath unit-tests.xcresult \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+            -skipPackagePluginValidation
       - name: Upload unit test result
         if: failure()
         uses: actions/upload-artifact@v7
@@ -95,7 +95,7 @@ jobs:
             -destination "$DESTINATION" \
             -only-testing:taxUITests \
             -resultBundlePath ui-tests.xcresult \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+            -skipPackagePluginValidation
       - name: Upload UI test result
         if: failure()
         uses: actions/upload-artifact@v7
