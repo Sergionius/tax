@@ -7,6 +7,7 @@ The private Orca protocol is used only by the Mac-side `OrcaRuntimeAdapter`. It 
 | tax probe | Orca version | Orca commit | Runtime daemon protocol | Result |
 |---|---:|---|---:|---|
 | Phase 0 | 1.4.188 | `2b1254d68192676e04674c2826e5f8f63992f1ad` | 36 | inventory, snapshot, and incremental stream verified |
+| Update smoke | 1.4.190 | `b755629f3776150a50d9d9ecceeefae0bd51f252` | 36 | inventory, packaged adapter, snapshot, incremental output, input, and resize verified |
 
 Observed runtime capabilities required by the adapter:
 

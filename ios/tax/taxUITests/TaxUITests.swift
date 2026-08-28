@@ -24,8 +24,10 @@ final class TaxUITests: XCTestCase {
 
     func testLiveRelayListsWorkspacesAndOpensFiles() throws {
         let environment = ProcessInfo.processInfo.environment
-        let apiKey = try XCTUnwrap(environment["TAX_UI_API_KEY"])
-        let encryptionKey = try XCTUnwrap(environment["TAX_UI_E2EE_KEY"])
+        guard let apiKey = environment["TAX_UI_API_KEY"],
+              let encryptionKey = environment["TAX_UI_E2EE_KEY"] else {
+            throw XCTSkip("Live relay smoke requires TAX_UI_API_KEY and TAX_UI_E2EE_KEY")
+        }
         let app = launch(
             "--mock-configured",
             "--mock-server-url", environment["TAX_UI_SERVER"] ?? "https://tax.138-249-127-23.nip.io",
