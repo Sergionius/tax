@@ -156,11 +156,11 @@ SwiftTerm предоставляет UIKit `TerminalView`, методы `feed(by
 - Modify: `ios/README-REMOTE.md`
 - Modify: `README.md`
 
-- [ ] Описать SwiftTerm как renderer по умолчанию и xterm.js как доступный fallback.
-- [ ] Описать общий renderer contract и правило, что будущий libghostty adapter реализует только этот контракт и не изменяет store, remote protocol или Mac host.
-- [ ] Зафиксировать, что выбор renderer’а локален для устройства и сохраняется в UserDefaults.
-- [ ] Добавить короткий физический acceptance сценарий для одинакового terminal session: initial snapshot, большой scrollback, быстрый input, keyboard visibility, Pi alternate screen, renderer switch и reconnect.
-- [ ] Указать известную границу PoC: xterm.js остаётся в bundle до принятия отдельного решения о полной миграции.
+- [x] Описать SwiftTerm как renderer по умолчанию и xterm.js как доступный fallback.
+- [x] Описать общий renderer contract и правило, что будущий libghostty adapter реализует только этот контракт и не изменяет store, remote protocol или Mac host.
+- [x] Зафиксировать, что выбор renderer’а локален для устройства и сохраняется в UserDefaults.
+- [x] Добавить короткий физический acceptance сценарий для одинакового terminal session: initial snapshot, большой scrollback, быстрый input, keyboard visibility, Pi alternate screen, renderer switch и reconnect.
+- [x] Указать известную границу PoC: xterm.js остаётся в bundle до принятия отдельного решения о полной миграции.
 
 ## Validation
 
@@ -218,6 +218,7 @@ xcodebuild test \
 
 - The prescribed `xcodebuild build-for-testing ... SWIFT_TREAT_WARNINGS_AS_ERRORS=YES` stopped during SwiftTerm package-plugin validation. With plugin validation skipped, Xcode 26 exposed an external package conflict between `-suppress-warnings` and the requested `-warnings-as-errors`; neither diagnostic involves task sources.
 - Re-ran build/test validation with package plugin validation skipped and `SWIFT_TREAT_WARNINGS_AS_ERRORS=NO`; the app and test targets built, and all 20 `taxTests` passed.
+- Task 5 validation: `git diff --check` passed. The documentation was checked against `TerminalRendererKind`, `SettingsStore`, `TerminalRendererHost`, `TerminalRenderPipeline`, `RemoteModels`, and `TerminalView`; the documented default, local `UserDefaults` persistence, renderer contract, switching behavior, and physical acceptance flow match the implemented sources.
 
 На физическом iPhone проверить оба renderer’а на одном живом Orca terminal:
 

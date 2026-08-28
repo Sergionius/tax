@@ -7,8 +7,10 @@
 - **Orca Runtime на Mac** — источник workspace и терминалов;
 - **tax remote host на Mac** — адаптер к приватному протоколу Orca и scoped file service;
 - **backend/VPS** — маршрутизирует только ciphertext и отправляет APNs;
-- **iOS-приложение** — SwiftUI-клиент с xterm.js renderer;
+- **iOS-приложение** — SwiftUI-клиент со SwiftTerm 1.20.0 как renderer по умолчанию и xterm.js как переключаемым fallback;
 - **E2EE** — отдельный 256-битный ключ tax, которого нет на backend.
+
+Renderer’ы подключаются через общий tax-owned contract: readiness с viewport, изменения viewport, binary input, reset/application snapshot, incremental bytes и focus. Будущий libghostty adapter должен реализовать только этот contract и не менять `RemoteWorkspaceStore`, remote protocol или Mac host. Выбор renderer’а локален для устройства и сохраняется в `UserDefaults`; xterm.js остаётся в bundle до отдельного решения о полной миграции.
 
 Backend не хранит terminal input/output или содержимое файлов. Неопределённо доставленный ввод автоматически не повторяется.
 
@@ -153,6 +155,18 @@ tax push-doctor
 ```
 
 Успешный `APNs result: sent` и HTTP `200` означают, что Apple приняла push. Отображение баннера дополнительно зависит от разрешений Notifications, Focus и Scheduled Summary на iPhone.
+
+## Сценарий сравнения renderer’ов
+
+На физическом iPhone, используя одну и ту же живую Orca terminal session, последовательно проверьте SwiftTerm и xterm.js:
+
+1. Убедитесь, что после чистой установки выбран SwiftTerm и initial snapshot появляется целиком, без промежуточных блоков.
+2. Создайте большой scrollback и проверьте инерционную прокрутку без скачков при новом output.
+3. Выполните быстрый input и убедитесь, что он не запаздывает и не дублируется.
+4. Откройте клавиатуру и проверьте, что активный prompt остаётся видимым.
+5. Запустите Pi/TUI в alternate screen и проверьте корректную работу.
+6. Переключите renderer и убедитесь, что создаются новый viewport/subscription и чистый snapshot.
+7. Выполните reconnect и убедитесь, что generations не смешиваются.
 
 ## Push deep links
 
