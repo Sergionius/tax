@@ -143,6 +143,14 @@ indirect enum JSONValue: Codable, Sendable {
     var array: [JSONValue]? { if case let .array(value) = self { value } else { nil } }
 }
 
+struct TerminalRenderUpdate: Equatable, Sendable {
+    let sequence: UInt64
+    let resetsTerminal: Bool
+    let data: Data
+
+    static let empty = TerminalRenderUpdate(sequence: 0, resetsTerminal: true, data: Data())
+}
+
 struct RemoteTerminalFrame: Sendable {
     enum Opcode: UInt8, Sendable { case snapshot = 1, output, input, resize, ack, error }
     let opcode: Opcode
@@ -150,6 +158,14 @@ struct RemoteTerminalFrame: Sendable {
     let generation: UInt64
     let sequence: UInt64
     let payload: Data
+
+    init(opcode: Opcode, streamID: UInt32, generation: UInt64, sequence: UInt64, payload: Data) {
+        self.opcode = opcode
+        self.streamID = streamID
+        self.generation = generation
+        self.sequence = sequence
+        self.payload = payload
+    }
 
     init(data: Data) throws {
         guard data.count >= 24, data[0] == 1, let opcode = Opcode(rawValue: data[1]) else {
@@ -161,6 +177,18 @@ struct RemoteTerminalFrame: Sendable {
         sequence = data.readInteger(at: 16)
         payload = data.dropFirst(24)
     }
+
+    func encoded() -> Data {
+        Data([1, opcode.rawValue, 0, 0])
+            + streamID.bigEndianData
+            + generation.bigEndianData
+            + sequence.bigEndianData
+            + payload
+    }
+}
+
+private extension FixedWidthInteger {
+    var bigEndianData: Data { withUnsafeBytes(of: bigEndian) { Data($0) } }
 }
 
 private extension Data {

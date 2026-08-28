@@ -5,19 +5,23 @@ struct TerminalView: View {
     @Environment(RemoteWorkspaceStore.self) private var store
     @State private var controlArmed = false
 
-    private var buffer: Data {
-        guard let streamID = store.activeStreamID else { return Data() }
-        return store.terminalBuffers[streamID] ?? Data()
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            TerminalWebView(data: buffer) { text in
+            TerminalWebView(update: store.terminalRenderUpdate) { text in
                 Swift.Task { await store.sendInput(terminalID: terminal.id, text: controlArmed ? control(text) : text); controlArmed = false }
             } onResize: { columns, rows in
                 Swift.Task { await store.resize(terminalID: terminal.id, columns: columns, rows: rows) }
             }
             .background(Color(red: 0.06, green: 0.067, blue: 0.08))
+            .overlay {
+                if !store.terminalSnapshotReady {
+                    ProgressView("Loading terminal…")
+                        .tint(.white)
+                        .foregroundStyle(.white)
+                        .padding(14)
+                        .background(.black.opacity(0.72), in: .rect(cornerRadius: 12))
+                }
+            }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack {

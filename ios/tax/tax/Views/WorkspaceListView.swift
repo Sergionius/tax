@@ -30,6 +30,9 @@ struct WorkspaceListView: View {
                 }
             }
             .navigationTitle("Orca")
+            .safeAreaInset(edge: .top, spacing: 0) {
+                ConnectionBanner(state: store.connectionState)
+            }
             .navigationDestination(for: RemoteNavigationRoute.self) { route in
                 switch route {
                 case let .workspace(workspace): WorkspaceView(workspace: workspace)
@@ -37,7 +40,6 @@ struct WorkspaceListView: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { ConnectionBadge(state: store.connectionState) }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink(destination: SettingsView()) { Image(systemName: "gear") }
                         .accessibilityIdentifier("settings.open")
@@ -97,13 +99,39 @@ struct WorkspaceListView: View {
     }
 }
 
-private struct ConnectionBadge: View {
+private struct ConnectionBanner: View {
     let state: RemoteConnectionState
-    var body: some View {
-        HStack(spacing: 5) {
-            Circle().fill(state == .online ? .green : .orange).frame(width: 8, height: 8)
-            Text(state.rawValue.replacingOccurrences(of: "_", with: " ")).font(.caption)
+
+    private var title: String {
+        switch state {
+        case .connecting: "Connecting to Mac"
+        case .online: "Mac online"
+        case .macOffline: "Mac offline"
+        case .orcaOffline: "Orca offline"
+        case .incompatible: "Orca incompatible"
+        case .reconnecting: "Reconnecting to Mac"
         }
-        .accessibilityLabel("Mac connection: \(state.rawValue)")
+    }
+
+    private var color: Color {
+        switch state {
+        case .online: .green
+        case .connecting, .reconnecting: .orange
+        case .macOffline, .orcaOffline, .incompatible: .red
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle().fill(color).frame(width: 9, height: 9)
+            Text(title).font(.subheadline.weight(.medium))
+            Spacer(minLength: 0)
+            if state == .connecting || state == .reconnecting { ProgressView().controlSize(.small) }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .background(.bar)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Mac connection: \(title)")
     }
 }

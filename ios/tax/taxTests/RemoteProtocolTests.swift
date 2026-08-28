@@ -36,6 +36,22 @@ struct RemoteProtocolTests {
         #expect(document.text == "second")
     }
 
+    @Test func clientTerminalFrameRoundTripsBinaryInput() throws {
+        let frame = RemoteTerminalFrame(
+            opcode: .input,
+            streamID: 7,
+            generation: 3,
+            sequence: 42,
+            payload: Data("echo fast".utf8)
+        )
+        let decoded = try RemoteTerminalFrame(data: frame.encoded())
+        #expect(decoded.opcode == .input)
+        #expect(decoded.streamID == 7)
+        #expect(decoded.generation == 3)
+        #expect(decoded.sequence == 42)
+        #expect(decoded.payload == Data("echo fast".utf8))
+    }
+
     @Test func terminalFrameRejectsWrongVersionAndDecodesHeader() throws {
         var frame = Data([1, 2, 0, 0])
         frame.append(contentsOf: [0, 0, 0, 7])

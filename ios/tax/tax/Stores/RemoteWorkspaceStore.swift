@@ -7,7 +7,8 @@ final class RemoteWorkspaceStore {
     var connectionState: RemoteConnectionState = .macOffline
     var workspaces: [RemoteWorkspace] = []
     var terminals: [String: [RemoteTerminal]] = [:]
-    var terminalBuffers: [UInt32: Data] = [:]
+    var terminalRenderUpdate = TerminalRenderUpdate.empty
+    var terminalSnapshotReady = false
     var fileEntries: [String: [RemoteFileEntry]] = [:]
     var fileSearchResults: [RemoteFileEntry] = []
     var openDocument: RemoteFileDocument?
@@ -21,6 +22,10 @@ final class RemoteWorkspaceStore {
     @ObservationIgnored private var eventTask: Swift.Task<Void, Never>?
     @ObservationIgnored private var configuration: RemoteConfiguration?
     @ObservationIgnored private var activeTerminalID: String?
+    @ObservationIgnored private var terminalClientSequence: UInt64 = 0
+    @ObservationIgnored private var terminalRenderSequence: UInt64 = 0
+    @ObservationIgnored private var pendingTerminalOutput = Data()
+    @ObservationIgnored private var terminalFlushTask: Swift.Task<Void, Never>?
 
     func connect(settings: SettingsStore) async {
         disconnect()
@@ -75,28 +80,47 @@ final class RemoteWorkspaceStore {
         activeTerminalID = terminalID
         activeStreamID = nil
         activeGeneration = nil
+        terminalSnapshotReady = false
+        terminalClientSequence = 0
+        publishTerminal(data: Data(), resetsTerminal: true)
         do { try await client?.sendControl(type: "terminal.subscribe", payload: ["terminal_id": .string(terminalID)]) }
         catch { errorMessage = error.localizedDescription }
     }
 
     func sendInput(terminalID: String, text: String) async {
-        let encoded = Data(text.utf8).base64EncodedString()
-        do {
-            try await client?.sendControl(
-                type: "terminal.input",
-                operationID: UUID().uuidString,
-                payload: ["terminal_id": .string(terminalID), "data_b64": .string(encoded)]
-            )
-        } catch { errorMessage = "Input delivery is ambiguous and was not repeated: \(error.localizedDescription)" }
+        guard terminalID == activeTerminalID,
+              let streamID = activeStreamID,
+              let generation = activeGeneration,
+              let client else { return }
+        terminalClientSequence &+= 1
+        let frame = RemoteTerminalFrame(
+            opcode: .input,
+            streamID: streamID,
+            generation: generation,
+            sequence: terminalClientSequence,
+            payload: Data(text.utf8)
+        )
+        do { try await client.sendTerminal(frame.encoded()) }
+        catch { errorMessage = "Input delivery is ambiguous and was not repeated: \(error.localizedDescription)" }
     }
 
     func resize(terminalID: String, columns: Int, rows: Int) async {
-        do {
-            try await client?.sendControl(
-                type: "terminal.resize",
-                payload: ["terminal_id": .string(terminalID), "columns": .int(columns), "rows": .int(rows)]
-            )
-        } catch { errorMessage = error.localizedDescription }
+        guard terminalID == activeTerminalID,
+              let streamID = activeStreamID,
+              let generation = activeGeneration,
+              let client else { return }
+        terminalClientSequence &+= 1
+        let payload = try? JSONSerialization.data(withJSONObject: ["columns": columns, "rows": rows])
+        guard let payload else { return }
+        let frame = RemoteTerminalFrame(
+            opcode: .resize,
+            streamID: streamID,
+            generation: generation,
+            sequence: terminalClientSequence,
+            payload: payload
+        )
+        do { try await client.sendTerminal(frame.encoded()) }
+        catch { errorMessage = error.localizedDescription }
     }
 
     func createTerminal(workspaceID: String, title: String?) async {
@@ -185,6 +209,10 @@ final class RemoteWorkspaceStore {
         client = nil
         activeStreamID = nil
         activeGeneration = nil
+        terminalSnapshotReady = false
+        terminalFlushTask?.cancel()
+        terminalFlushTask = nil
+        pendingTerminalOutput.removeAll(keepingCapacity: true)
         if configuration != nil { connectionState = .reconnecting }
     }
 
@@ -207,6 +235,10 @@ final class RemoteWorkspaceStore {
         activeTerminalID = nil
         activeStreamID = nil
         activeGeneration = nil
+        terminalSnapshotReady = false
+        terminalFlushTask?.cancel()
+        terminalFlushTask = nil
+        pendingTerminalOutput.removeAll(keepingCapacity: true)
         isSavingFile = false
     }
 
@@ -227,6 +259,10 @@ final class RemoteWorkspaceStore {
                 self.client = nil
                 activeStreamID = nil
                 activeGeneration = nil
+                terminalSnapshotReady = false
+                terminalFlushTask?.cancel()
+                terminalFlushTask = nil
+                pendingTerminalOutput.removeAll(keepingCapacity: true)
                 if let configuration {
                     try? await Swift.Task.sleep(for: .seconds(1))
                     guard !Swift.Task.isCancelled else { return }
@@ -293,17 +329,45 @@ final class RemoteWorkspaceStore {
         if let streamID = payload["stream_id"]?.int, let generation = payload["generation"]?.int {
             activeStreamID = UInt32(streamID)
             activeGeneration = UInt64(generation)
-            terminalBuffers[UInt32(streamID)] = Data()
+            terminalSnapshotReady = false
         }
     }
 
     private func apply(_ frame: RemoteTerminalFrame) {
         guard frame.streamID == activeStreamID, frame.generation == activeGeneration else { return }
         switch frame.opcode {
-        case .snapshot: terminalBuffers[frame.streamID] = frame.payload
-        case .output: terminalBuffers[frame.streamID, default: Data()].append(frame.payload)
+        case .snapshot:
+            terminalFlushTask?.cancel()
+            terminalFlushTask = nil
+            pendingTerminalOutput.removeAll(keepingCapacity: true)
+            publishTerminal(data: frame.payload, resetsTerminal: true)
+            terminalSnapshotReady = true
+        case .output:
+            pendingTerminalOutput.append(frame.payload)
+            scheduleTerminalFlush()
         default: break
         }
+    }
+
+    private func scheduleTerminalFlush() {
+        guard terminalFlushTask == nil else { return }
+        terminalFlushTask = Swift.Task { [weak self] in
+            try? await Swift.Task.sleep(for: .milliseconds(16))
+            guard !Swift.Task.isCancelled, let self else { return }
+            let data = pendingTerminalOutput
+            pendingTerminalOutput.removeAll(keepingCapacity: true)
+            terminalFlushTask = nil
+            if !data.isEmpty { publishTerminal(data: data, resetsTerminal: false) }
+        }
+    }
+
+    private func publishTerminal(data: Data, resetsTerminal: Bool) {
+        terminalRenderSequence &+= 1
+        terminalRenderUpdate = TerminalRenderUpdate(
+            sequence: terminalRenderSequence,
+            resetsTerminal: resetsTerminal,
+            data: data
+        )
     }
 
     func files(workspaceID: String, path: String) -> [RemoteFileEntry] {
