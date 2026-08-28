@@ -84,6 +84,15 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Terminal") {
+                Picker("Renderer", selection: $settings.terminalRenderer) {
+                    ForEach(TerminalRendererKind.allCases) { renderer in
+                        Text(renderer.title).tag(renderer)
+                    }
+                }
+                .accessibilityIdentifier("settings.terminalRenderer")
+            }
+
             Section("Notifications") {
                 Picker("Push notifications", selection: $settings.pushMode) {
                     ForEach(PushMode.allCases) { mode in

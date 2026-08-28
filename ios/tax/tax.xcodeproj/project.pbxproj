@@ -41,14 +41,14 @@
 		3D4265344A42B4E767C45525 /* ModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
 		5669ED4A77C43BE367CB1FD9 /* SettingsStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsStoreTests.swift; sourceTree = "<group>"; };
 		5763126DBA4E97A9D9A5F9A7 /* PushRoutingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PushRoutingTests.swift; sourceTree = "<group>"; };
-		7E8AA0A04714902E8B3A4AC0 /* taxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = taxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		899615913B28E2734271C4C7 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
-		9509B60C8FDDCBE680FBC46F /* task-full.json */ = {isa = PBXFileReference; includeInIndex = 1; name = "task-full.json"; path = "Fixtures/task-full.json"; sourceTree = "<group>"; };
+		9509B60C8FDDCBE680FBC46F /* task-full.json */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.json; name = "task-full.json"; path = "Fixtures/task-full.json"; sourceTree = "<group>"; };
 		A634221A30079B8A00A02DD1 /* tax.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = tax.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A63D7F90304152B9004C2464 /* taxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = taxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A63D7F91304152B9004C2464 /* taxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = taxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A643606BA89A30B2F3ACBA65 /* TaxUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TaxUITests.swift; sourceTree = "<group>"; };
-		B250159E60E8A11E3CD2CDF7 /* tasks-nullable.json */ = {isa = PBXFileReference; includeInIndex = 1; name = "tasks-nullable.json"; path = "Fixtures/tasks-nullable.json"; sourceTree = "<group>"; };
+		B250159E60E8A11E3CD2CDF7 /* tasks-nullable.json */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.json; name = "tasks-nullable.json"; path = "Fixtures/tasks-nullable.json"; sourceTree = "<group>"; };
 		B6A82E4D6F25FAE36CC710FC /* TestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
-		D44CB17A6C745A1CC77ABE6F /* taxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = taxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -104,7 +104,6 @@
 			children = (
 				A643606BA89A30B2F3ACBA65 /* TaxUITests.swift */,
 			);
-			name = taxUITests;
 			path = taxUITests;
 			sourceTree = "<group>";
 		};
@@ -119,7 +118,6 @@
 				259D9EFBEA33B0C737B6162F /* DeviceRegistrationServiceTests.swift */,
 				B6A82E4D6F25FAE36CC710FC /* TestSupport.swift */,
 			);
-			name = taxTests;
 			path = taxTests;
 			sourceTree = "<group>";
 		};
@@ -138,6 +136,8 @@
 			isa = PBXGroup;
 			children = (
 				A634221A30079B8A00A02DD1 /* tax.app */,
+				A63D7F90304152B9004C2464 /* taxTests.xctest */,
+				A63D7F91304152B9004C2464 /* taxUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -176,7 +176,7 @@
 			);
 			name = taxTests;
 			productName = taxTests;
-			productReference = 7E8AA0A04714902E8B3A4AC0 /* taxTests.xctest */;
+			productReference = A63D7F90304152B9004C2464 /* taxTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		98C65D09FDDF7452DDE6F0F9 /* taxUITests */ = {
@@ -194,7 +194,7 @@
 			);
 			name = taxUITests;
 			productName = taxUITests;
-			productReference = D44CB17A6C745A1CC77ABE6F /* taxUITests.xctest */;
+			productReference = A63D7F91304152B9004C2464 /* taxUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		A634221930079B8A00A02DD1 /* tax */ = {

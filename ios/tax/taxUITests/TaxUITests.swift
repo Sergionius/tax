@@ -20,6 +20,14 @@ final class TaxUITests: XCTestCase {
         XCTAssertTrue(app.textFields["Device ID"].exists)
         XCTAssertTrue(app.secureTextFields["256-bit encryption key"].exists)
         XCTAssertFalse(app.buttons["reply.send"].exists)
+
+        let rendererPicker = app.buttons["settings.terminalRenderer"]
+        XCTAssertTrue(rendererPicker.exists)
+        rendererPicker.tap()
+        let swiftTermExists = app.staticTexts["SwiftTerm"].waitForExistence(timeout: 5) || app.buttons["SwiftTerm"].exists
+        let xtermExists = app.staticTexts["xterm.js"].exists || app.buttons["xterm.js"].exists
+        XCTAssertTrue(swiftTermExists, "SwiftTerm option should be visible")
+        XCTAssertTrue(xtermExists, "xterm.js option should be visible")
     }
 
     func testLiveRelayListsWorkspacesAndOpensFiles() throws {
