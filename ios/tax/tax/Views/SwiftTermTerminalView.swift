@@ -19,6 +19,9 @@ struct SwiftTermTerminalView: UIViewRepresentable {
         view.nativeBackgroundColor = UIColor(red: 16 / 255, green: 17 / 255, blue: 20 / 255, alpha: 1)
         view.nativeForegroundColor = .white
         view.keyboardDismissMode = .interactive
+        view.alwaysBounceVertical = true
+        view.showsVerticalScrollIndicator = true
+        view.isUserInteractionEnabled = true
         view.terminalDelegate = context.coordinator
         context.coordinator.terminalView = view
         pipeline.rendererDidMount()

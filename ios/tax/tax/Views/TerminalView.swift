@@ -16,50 +16,57 @@ struct TerminalView: View {
                     pipeline.enqueue(update)
                 }
                 .overlay {
-                    if !store.terminalSnapshotReady {
-                        ProgressView("Loading terminal…")
-                            .tint(.white)
-                            .foregroundStyle(.white)
-                            .padding(14)
-                            .background(.black.opacity(0.72), in: .rect(cornerRadius: 12))
-                    } else if store.terminalReconnectInProgress {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text("Reconnecting…")
+                    Group {
+                        if !store.terminalSnapshotReady {
+                            ProgressView("Loading terminal…")
+                                .tint(.white)
+                                .foregroundStyle(.white)
+                                .padding(14)
+                                .background(.black.opacity(0.72), in: .rect(cornerRadius: 12))
                         }
-                        .tint(.white)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.black.opacity(0.72), in: .capsule)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                        .padding(.top, 8)
                     }
+                    .allowsHitTesting(false)
                 }
-                .allowsHitTesting(false)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack {
-                    key("esc", Data([0x1B]))
-                    key("tab", Data([0x09]))
-                    Button(controlArmed ? "Ctrl ✓" : "Ctrl") { controlArmed.toggle() }.buttonStyle(.bordered)
-                    key("C", Data([0x03]))
-                    key("←", Data([0x1B, 0x5B, 0x44]))
-                    key("↑", Data([0x1B, 0x5B, 0x41]))
-                    key("↓", Data([0x1B, 0x5B, 0x42]))
-                    key("→", Data([0x1B, 0x5B, 0x43]))
-                    key("enter", Data([0x0D]))
-                }.padding(8)
-            }.background(.bar)
+            if settings.terminalRenderer == .xterm {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack {
+                        key("esc", Data([0x1B]))
+                        key("tab", Data([0x09]))
+                        Button(controlArmed ? "Ctrl ✓" : "Ctrl") { controlArmed.toggle() }.buttonStyle(.bordered)
+                        key("C", Data([0x03]))
+                        key("←", Data([0x1B, 0x5B, 0x44]))
+                        key("↑", Data([0x1B, 0x5B, 0x41]))
+                        key("↓", Data([0x1B, 0x5B, 0x42]))
+                        key("→", Data([0x1B, 0x5B, 0x43]))
+                        key("enter", Data([0x0D]))
+                    }
+                    .padding(8)
+                }
+                .background(.bar)
+            }
         }
         .navigationTitle(terminal.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbarBackground(Color(red: 0.06, green: 0.067, blue: 0.08), for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ConnectionStatus(
+                    state: store.connectionState,
+                    terminalReconnectInProgress: store.terminalReconnectInProgress
+                )
+            }
+        }
         .onChange(of: settings.terminalRenderer) { _, _ in
             store.rendererDidChange()
         }
         .onAppear {
             pipeline.onInput = { data in
-                Swift.Task { await store.sendInput(terminalID: terminal.id, data: data) }
+                let input = controlArmed ? control(data) : data
+                controlArmed = false
+                Swift.Task { await store.sendInput(terminalID: terminal.id, data: input) }
             }
             pipeline.onViewportReady = { viewport in
                 Swift.Task { await store.activateTerminal(terminalID: terminal.id, viewport: viewport) }
@@ -77,8 +84,12 @@ struct TerminalView: View {
         Button(title) { Swift.Task { await store.sendInput(terminalID: terminal.id, data: data) } }.buttonStyle(.bordered)
     }
 
-    private func control(_ text: String) -> Data {
-        guard let scalar = text.lowercased().unicodeScalars.first, scalar.value >= 96, scalar.value <= 127 else { return Data(text.utf8) }
-        return Data([UInt8(scalar.value - 96)])
+    private func control(_ data: Data) -> Data {
+        guard data.count == 1, let byte = data.first else { return data }
+        switch byte {
+        case 0x40 ... 0x5F: return Data([byte - 0x40])
+        case 0x60 ... 0x7F: return Data([byte - 0x60])
+        default: return data
+        }
     }
 }
