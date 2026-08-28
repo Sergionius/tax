@@ -17,6 +17,7 @@ final class RemoteWorkspaceStore {
     var errorMessage: String?
     var activeStreamID: UInt32?
     var activeGeneration: UInt64?
+    var activeTerminalViewport: TerminalRendererViewport?
 
     @ObservationIgnored private var client: RemoteClient?
     @ObservationIgnored private var eventTask: Swift.Task<Void, Never>?
@@ -24,6 +25,8 @@ final class RemoteWorkspaceStore {
     @ObservationIgnored private var activeTerminalID: String?
     @ObservationIgnored private var terminalClientSequence: UInt64 = 0
     @ObservationIgnored private var terminalRenderSequence: UInt64 = 0
+    @ObservationIgnored private var pendingTerminalViewport: TerminalRendererViewport?
+    @ObservationIgnored private var sentTerminalViewport: TerminalRendererViewport?
     @ObservationIgnored private var pendingTerminalOutput = Data()
     @ObservationIgnored private var terminalFlushTask: Swift.Task<Void, Never>?
 
@@ -70,20 +73,34 @@ final class RemoteWorkspaceStore {
         catch { errorMessage = error.localizedDescription }
     }
 
-    func subscribe(terminalID: String) async {
-        if activeTerminalID == terminalID,
-           activeStreamID != nil,
-           activeGeneration != nil,
-           connectionState == .online {
+    func activateTerminal(terminalID: String, viewport: TerminalRendererViewport) async {
+        let viewport = validViewport(viewport)
+        activeTerminalViewport = viewport
+        pendingTerminalViewport = viewport
+        guard terminalID == activeTerminalID, activeStreamID != nil, activeGeneration != nil else {
+            await subscribe(terminalID: terminalID, viewport: viewport)
             return
         }
+        guard sentTerminalViewport != viewport else { return }
+        await sendResize(terminalID: terminalID, viewport: viewport)
+    }
+
+    private func subscribe(terminalID: String, viewport: TerminalRendererViewport) async {
         activeTerminalID = terminalID
         activeStreamID = nil
         activeGeneration = nil
         terminalSnapshotReady = false
         terminalClientSequence = 0
-        do { try await client?.sendControl(type: "terminal.subscribe", payload: ["terminal_id": .string(terminalID)]) }
-        catch { errorMessage = error.localizedDescription }
+        sentTerminalViewport = nil
+        do {
+            try await client?.sendControl(type: "terminal.subscribe", payload: [
+                "terminal_id": .string(terminalID), "columns": .int(viewport.columns), "rows": .int(viewport.rows)
+            ])
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func validViewport(_ viewport: TerminalRendererViewport) -> TerminalRendererViewport {
+        TerminalRendererViewport(columns: min(max(viewport.columns, 1), 1000), rows: min(max(viewport.rows, 1), 1000))
     }
 
     func sendInput(terminalID: String, data: Data) async {
@@ -111,23 +128,30 @@ final class RemoteWorkspaceStore {
         terminalSnapshotReady = true
     }
 
+    func rendererDidChange() {
+        activeStreamID = nil
+        activeGeneration = nil
+        sentTerminalViewport = nil
+        terminalSnapshotReady = false
+        terminalFlushTask?.cancel()
+        terminalFlushTask = nil
+        pendingTerminalOutput.removeAll(keepingCapacity: true)
+    }
+
     func resize(terminalID: String, columns: Int, rows: Int) async {
-        guard terminalID == activeTerminalID,
-              let streamID = activeStreamID,
-              let generation = activeGeneration,
-              let client else { return }
+        await activateTerminal(terminalID: terminalID, viewport: TerminalRendererViewport(columns: columns, rows: rows))
+    }
+
+    private func sendResize(terminalID: String, viewport: TerminalRendererViewport) async {
+        guard terminalID == activeTerminalID, let streamID = activeStreamID, let generation = activeGeneration, let client else { return }
         terminalClientSequence &+= 1
-        let payload = try? JSONSerialization.data(withJSONObject: ["columns": columns, "rows": rows])
+        let payload = try? JSONSerialization.data(withJSONObject: ["columns": viewport.columns, "rows": viewport.rows])
         guard let payload else { return }
-        let frame = RemoteTerminalFrame(
-            opcode: .resize,
-            streamID: streamID,
-            generation: generation,
-            sequence: terminalClientSequence,
-            payload: payload
-        )
-        do { try await client.sendTerminal(frame.encoded()) }
-        catch { errorMessage = error.localizedDescription }
+        let frame = RemoteTerminalFrame(opcode: .resize, streamID: streamID, generation: generation, sequence: terminalClientSequence, payload: payload)
+        do {
+            try await client.sendTerminal(frame.encoded())
+            sentTerminalViewport = viewport
+        } catch { errorMessage = error.localizedDescription }
     }
 
     func createTerminal(workspaceID: String, title: String?) async {
@@ -291,7 +315,9 @@ final class RemoteWorkspaceStore {
             connectionState = .online
             Swift.Task {
                 try? await client?.sendControl(type: "workspace.list")
-                if let activeTerminalID { await subscribe(terminalID: activeTerminalID) }
+                if let activeTerminalID, let viewport = pendingTerminalViewport {
+                    await subscribe(terminalID: activeTerminalID, viewport: viewport)
+                }
             }
             return
         }
@@ -337,6 +363,7 @@ final class RemoteWorkspaceStore {
             activeStreamID = UInt32(streamID)
             activeGeneration = UInt64(generation)
             terminalSnapshotReady = false
+            sentTerminalViewport = pendingTerminalViewport
         }
     }
 

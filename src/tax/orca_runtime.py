@@ -94,7 +94,7 @@ class WorkspaceRuntime(Protocol):
 
     def list_terminals(self, workspace_id: Optional[str] = None) -> list[Terminal]: ...
 
-    def subscribe_terminal(self, terminal_id: str) -> TerminalEventStream: ...
+    def subscribe_terminal(self, terminal_id: str, columns: int, rows: int) -> TerminalEventStream: ...
 
     def send_terminal_input(self, terminal_id: str, data: bytes) -> None: ...
 
@@ -174,12 +174,14 @@ class OrcaLocalRPCTransport:
 
 
 class OrcaTerminalSubscription:
-    def __init__(self, terminal_id: str, pairing_code_file: Path, bridge_path: Path = DEFAULT_PROBE_BRIDGE):
+    def __init__(self, terminal_id: str, pairing_code_file: Path, columns: int, rows: int, bridge_path: Path = DEFAULT_PROBE_BRIDGE):
+        if not 1 <= columns <= 1000 or not 1 <= rows <= 1000:
+            raise ValueError("terminal dimensions must be between 1 and 1000")
         self.terminal_id = terminal_id
         self._closed = False
         self._write_lock = threading.Lock()
         self._process = subprocess.Popen(
-            [str(bridge_path), "--terminal", terminal_id, "--pairing-code-file", str(pairing_code_file)],
+            [str(bridge_path), "--terminal", terminal_id, "--pairing-code-file", str(pairing_code_file), "--columns", str(columns), "--rows", str(rows)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -337,10 +339,12 @@ class OrcaRuntimeAdapter:
         rows = self._read("terminal.list", params).get("result", {}).get("terminals", [])
         return [self._terminal(row) for row in rows if isinstance(row, dict) and row.get("handle")]
 
-    def subscribe_terminal(self, terminal_id: str) -> OrcaTerminalSubscription:
+    def subscribe_terminal(self, terminal_id: str, columns: int, rows: int) -> OrcaTerminalSubscription:
+        if not 1 <= columns <= 1000 or not 1 <= rows <= 1000:
+            raise ValueError("terminal dimensions must be between 1 and 1000")
         if not self.pairing_code_file:
             raise OrcaRuntimeError("pairing_required", "Orca pairing code is required for terminal streaming")
-        return OrcaTerminalSubscription(terminal_id, self.pairing_code_file)
+        return OrcaTerminalSubscription(terminal_id, self.pairing_code_file, columns, rows)
 
     def send_terminal_input(self, terminal_id: str, data: bytes) -> None:
         if b"\x00" in data:

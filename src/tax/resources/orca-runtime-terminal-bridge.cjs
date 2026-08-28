@@ -23,10 +23,12 @@ function parseArgs(argv) {
     const value = argv[index + 1];
     if (flag === '--terminal' && value) result.terminal = value;
     else if (flag === '--pairing-code-file' && value) result.pairingCodeFile = value;
+    else if (flag === '--columns' && value) result.columns = Number(value);
+    else if (flag === '--rows' && value) result.rows = Number(value);
     else fatal(`unknown or incomplete argument: ${flag}`);
     index += 1;
   }
-  if (!result.terminal || !result.pairingCodeFile) fatal('terminal and pairing code file are required');
+  if (!result.terminal || !result.pairingCodeFile || !Number.isInteger(result.columns) || !Number.isInteger(result.rows) || result.columns < 1 || result.rows < 1 || result.columns > 1000 || result.rows > 1000) fatal('terminal, pairing code file, and valid dimensions are required');
   return result;
 }
 
@@ -99,8 +101,9 @@ async function main() {
           send(CONTROL_STREAM_ID, opcodes.Subscribe, protocol.encodeTerminalStreamJson({
             streamId: TERMINAL_STREAM_ID,
             terminal: args.terminal,
-            client: { id: 'tax-agent', type: 'desktop' },
-            capabilities: { ackOutput: 1, outputPause: 1, writeUnavailable: 1, desktopViewportClaims: 1 },
+            client: { id: 'tax-agent', type: 'mobile' },
+            viewport: { cols: args.columns, rows: args.rows },
+            capabilities: { ackOutput: 1, outputPause: 1, writeUnavailable: 1 },
           }));
         } else if (event?.type === 'subscribed') {
           subscribed = true;
@@ -172,7 +175,6 @@ async function main() {
         emit({ type: 'error', message: 'invalid terminal dimensions' });
         return;
       }
-      send(TERMINAL_STREAM_ID, opcodes.ClaimViewport, protocol.encodeTerminalStreamJson({ cols: columns, rows }));
       send(TERMINAL_STREAM_ID, opcodes.Resize, protocol.encodeTerminalStreamJson({ cols: columns, rows }));
     } else if (command.type === 'input') {
       let data;

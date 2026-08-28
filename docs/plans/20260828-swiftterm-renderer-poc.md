@@ -112,20 +112,20 @@ SwiftTerm предоставляет UIKit `TerminalView`, методы `feed(by
 - Modify: `tests/test_orca_runtime.py`
 - Modify: `docs/remote-protocol-v1.md`
 
-- [ ] Заменить немедленную подписку из `.task` на активацию терминала после первого renderer readiness event с валидными columns и rows.
-- [ ] Хранить последний валидный viewport активного terminal в `RemoteWorkspaceStore`.
-- [ ] Добавлять `columns` и `rows` в payload `terminal.subscribe`; ограничивать их теми же допустимыми пределами, что и последующий resize.
-- [ ] При изменении viewport до получения stream обновлять pending viewport без отправки resize; после получения stream отправлять только последнее отличающееся значение.
-- [ ] При reconnect использовать последний viewport в новой подписке и не считать старые stream ID/generation пригодными для input или resize.
-- [ ] При смене renderer принудительно завершать логическую старую подписку и запрашивать новый snapshot после измерения нового renderer’а.
-- [ ] Расширить `WorkspaceRuntime.subscribe_terminal` и `OrcaRuntimeAdapter.subscribe_terminal` обязательными initial columns/rows.
-- [ ] Передавать initial viewport bridge-процессу через отдельные числовые CLI arguments без помещения пользовательских данных или credentials в командную строку.
-- [ ] На Mac host валидировать viewport до создания subscription и возвращать protocol error для отсутствующих или недопустимых размеров.
-- [ ] В Orca bridge подписываться как `client.type = mobile`, передавать `viewport: { cols, rows }` в Orca `Subscribe` frame и убрать desktop-only `desktopViewportClaims`.
-- [ ] Для последующего mobile resize отправлять Orca `Resize` без desktop-only `ClaimViewport`.
-- [ ] Не менять private Orca framing за пределами bridge и `orca_runtime.py`.
-- [ ] Расширить Python tests проверкой передачи initial viewport от tax control message до fake runtime/bridge arguments, валидации размеров и последующего resize активной generation.
-- [ ] Документировать initial viewport и mobile subscription semantics в tax remote protocol без раскрытия Orca-private wire details.
+- [x] Заменить немедленную подписку из `.task` на активацию терминала после первого renderer readiness event с валидными columns и rows.
+- [x] Хранить последний валидный viewport активного terminal в `RemoteWorkspaceStore`.
+- [x] Добавлять `columns` и `rows` в payload `terminal.subscribe`; ограничивать их теми же допустимыми пределами, что и последующий resize.
+- [x] При изменении viewport до получения stream обновлять pending viewport без отправки resize; после получения stream отправлять только последнее отличающееся значение.
+- [x] При reconnect использовать последний viewport в новой подписке и не считать старые stream ID/generation пригодными для input или resize.
+- [x] При смене renderer принудительно завершать логическую старую подписку и запрашивать новый snapshot после измерения нового renderer’а.
+- [x] Расширить `WorkspaceRuntime.subscribe_terminal` и `OrcaRuntimeAdapter.subscribe_terminal` обязательными initial columns/rows.
+- [x] Передавать initial viewport bridge-процессу через отдельные числовые CLI arguments без помещения пользовательских данных или credentials в командную строку.
+- [x] На Mac host валидировать viewport до создания subscription и возвращать protocol error для отсутствующих или недопустимых размеров.
+- [x] В Orca bridge подписываться как `client.type = mobile`, передавать `viewport: { cols, rows }` в Orca `Subscribe` frame и убрать desktop-only `desktopViewportClaims`.
+- [x] Для последующего mobile resize отправлять Orca `Resize` без desktop-only `ClaimViewport`.
+- [x] Не менять private Orca framing за пределами bridge и `orca_runtime.py`.
+- [x] Расширить Python tests проверкой передачи initial viewport от tax control message до fake runtime/bridge arguments, валидации размеров и последующего resize активной generation.
+- [x] Документировать initial viewport и mobile subscription semantics в tax remote protocol без раскрытия Orca-private wire details.
 
 ### Task 4: Сделать snapshot, reconnect и keyboard lifecycle общими для обоих renderer’ов
 
@@ -211,6 +211,9 @@ xcodebuild test \
 ```
 
 ## Execution Notes
+
+- Task 3 validation: `.venv/bin/ruff check server src tests` passed; `.venv/bin/pytest -q` passed (77 tests).
+- iOS unit tests passed (20 tests) and UI tests passed (3, 1 skipped) with package plugin validation skipped and warnings disabled.
 
 - The prescribed `xcodebuild build-for-testing ... SWIFT_TREAT_WARNINGS_AS_ERRORS=YES` stopped during SwiftTerm package-plugin validation. With plugin validation skipped, Xcode 26 exposed an external package conflict between `-suppress-warnings` and the requested `-warnings-as-errors`; neither diagnostic involves task sources.
 - Re-ran build/test validation with package plugin validation skipped and `SWIFT_TREAT_WARNINGS_AS_ERRORS=NO`; the app and test targets built, and all 20 `taxTests` passed.

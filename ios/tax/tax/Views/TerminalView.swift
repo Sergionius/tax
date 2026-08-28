@@ -3,12 +3,14 @@ import SwiftUI
 struct TerminalView: View {
     let terminal: RemoteTerminal
     @Environment(RemoteWorkspaceStore.self) private var store
+    @Environment(SettingsStore.self) private var settings
     @State private var pipeline = TerminalRenderPipeline()
     @State private var controlArmed = false
 
     var body: some View {
         VStack(spacing: 0) {
             TerminalRendererHost(pipeline: pipeline)
+                .id(settings.terminalRenderer)
                 .background(Color(red: 0.06, green: 0.067, blue: 0.08))
                 .onChange(of: store.terminalRenderUpdate) { _, update in
                     pipeline.enqueue(update)
@@ -39,16 +41,18 @@ struct TerminalView: View {
         }
         .navigationTitle(terminal.title)
         .navigationBarTitleDisplayMode(.inline)
-        .task { await store.subscribe(terminalID: terminal.id) }
+        .onChange(of: settings.terminalRenderer) { _, _ in
+            store.rendererDidChange()
+        }
         .onAppear {
             pipeline.onInput = { data in
                 Swift.Task { await store.sendInput(terminalID: terminal.id, data: data) }
             }
             pipeline.onViewportReady = { viewport in
-                Swift.Task { await store.resize(terminalID: terminal.id, columns: viewport.columns, rows: viewport.rows) }
+                Swift.Task { await store.activateTerminal(terminalID: terminal.id, viewport: viewport) }
             }
             pipeline.onViewportChanged = { viewport in
-                Swift.Task { await store.resize(terminalID: terminal.id, columns: viewport.columns, rows: viewport.rows) }
+                Swift.Task { await store.activateTerminal(terminalID: terminal.id, viewport: viewport) }
             }
             pipeline.onSnapshotApplied = {
                 store.setSnapshotReady()

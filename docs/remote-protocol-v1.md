@@ -31,6 +31,8 @@ Supported types are defined by `MessageType` in `src/tax/remote_protocol.py`, co
 
 Terminal binary frames have a 24-byte network-order header: protocol version, opcode, reserved bytes, stream ID, generation, sequence, then payload. Generation and sequence changes force resnapshot rather than replay. The shared fixture is `tests/fixtures/remote-protocol-v1.json`.
 
+A `terminal.subscribe` request must include the renderer's initial `columns` and `rows`, each an integer from 1 through 1000. The host uses this mobile viewport when creating the subscription, before sending the initial snapshot. Viewport changes received before the stream is established replace the pending dimensions and do not produce resize frames. Once established, the client sends only the latest viewport when it differs from the subscription viewport. Reconnects and renderer changes create a new logical subscription and repeat this initial-viewport handshake; input and resize frames from older stream generations are rejected.
+
 ## Scoped file operations
 
 `file.list`, `file.search`, `file.read`, and `file.write` accept a `workspace_id` from the current Orca inventory plus a relative path. The Mac resolves every path against the active workspace root, rejects absolute paths, traversal, and escaping symlinks, and revokes access as soon as the workspace closes. Filename search is bounded and skips common generated directories.
@@ -50,7 +52,7 @@ tax remote-host \
   --orca-pairing-code-file ~/.config/tax/orca-pairing
 ```
 
-`tax-agent` reads the tax encryption key from macOS Keychain, connects as the host role, and exposes only tax-owned protocol messages. Workspace and terminal inventory, create/rename/close, input, resize, snapshots, and incremental output are translated by `RemoteHost`; Orca-private values remain in `OrcaRuntimeAdapter`.
+`tax-agent` reads the tax encryption key from macOS Keychain, connects as the host role, and exposes only tax-owned protocol messages. Workspace and terminal inventory, create/rename/close, input, resize, snapshots, and incremental output are translated by `RemoteHost`; Orca-private values remain in `OrcaRuntimeAdapter`. Terminal subscriptions use the mobile client semantics and the initial viewport supplied by the device; the tax protocol does not expose the underlying Orca subscription framing.
 
 Before iOS is available, validate the full encrypted path with:
 

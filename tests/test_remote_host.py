@@ -77,7 +77,8 @@ class FakeRuntime:
     def resize_terminal(self, terminal_id, columns, rows):
         pass
 
-    def subscribe_terminal(self, terminal_id):
+    def subscribe_terminal(self, terminal_id, columns, rows):
+        self.viewport = (columns, rows)
         self.stream = FakeStream(
             terminal_id,
             [
@@ -127,7 +128,7 @@ def test_remote_host_forwards_snapshot_output_and_stream_input():
     connection = FakeConnection()
     host = RemoteHost(runtime, connection)
 
-    host._handle_control(request(MessageType.TERMINAL_SUBSCRIBE, {"terminal_id": "term"}))
+    host._handle_control(request(MessageType.TERMINAL_SUBSCRIBE, {"terminal_id": "term", "columns": 80, "rows": 24}))
     deadline = time.monotonic() + 2
     while len([item for item in connection.sent if item[0] == TERMINAL_CHANNEL]) < 2 and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -139,6 +140,7 @@ def test_remote_host_forwards_snapshot_output_and_stream_input():
     assert [frame.opcode for frame in frames] == [TerminalOpcode.SNAPSHOT, TerminalOpcode.OUTPUT]
     assert [frame.sequence for frame in frames] == [1, 2]
     assert all(frame.generation == subscribed["generation"] for frame in frames)
+    assert runtime.viewport == (80, 24)
 
     # Use a held stream because the finite fixture stream has already ended.
     stream = FakeStream("term", [])
@@ -152,7 +154,16 @@ def test_remote_host_forwards_snapshot_output_and_stream_input():
         b"pi\r",
     )
     host._handle_terminal_frame(input_frame.encode())
+    resize_frame = TerminalFrame(
+        TerminalOpcode.RESIZE,
+        subscribed["stream_id"],
+        subscribed["generation"],
+        2,
+        b'{"columns":100,"rows":40}',
+    )
+    host._handle_terminal_frame(resize_frame.encode())
     assert stream.inputs == [b"pi\r"]
+    assert stream.sizes == [(100, 40)]
 
 
 def test_remote_host_control_input_acknowledges_after_runtime_accepts():
@@ -199,15 +210,16 @@ def test_remote_host_file_round_trip_and_conflict(tmp_path):
     assert path.read_text() == "second"
 
 
-def test_remote_host_rejects_plaintext_and_unknown_control_messages():
+def test_remote_host_rejects_plaintext_and_invalid_subscription_dimensions():
     runtime = FakeRuntime()
     connection = FakeConnection()
     host = RemoteHost(runtime, connection)
 
     host._handle_control(b"not json")
-    host._handle_control(request(MessageType.FILE_READ, {"path": "README.md"}, request_id="files"))
+    host._handle_control(request(MessageType.TERMINAL_SUBSCRIBE, {"terminal_id": "term", "columns": 0, "rows": 24}))
+    host._handle_control(request(MessageType.TERMINAL_SUBSCRIBE, {"terminal_id": "term"}, request_id="missing"))
 
     errors = response_messages(connection)
-    assert errors[0].type is MessageType.PROTOCOL_ERROR
-    assert errors[1].request_id == "files"
+    assert all(message.type is MessageType.PROTOCOL_ERROR for message in errors)
     assert errors[1].payload["ok"] is False
+    assert errors[2].request_id == "missing"

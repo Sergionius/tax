@@ -168,7 +168,7 @@ def test_stream_requires_protected_pairing_configuration(tmp_path: Path):
     adapter = OrcaRuntimeAdapter(FakeTransport())
 
     with pytest.raises(OrcaRuntimeError) as caught:
-        adapter.subscribe_terminal("term_1")
+        adapter.subscribe_terminal("term_1", 80, 24)
 
     assert caught.value.code == "pairing_required"
 
@@ -180,5 +180,7 @@ def test_rejects_invalid_terminal_input_and_dimensions():
         adapter.send_terminal_input("term_1", b"a\x00b")
     with pytest.raises(ValueError):
         adapter.resize_terminal("term_1", 0, 24)
+    with pytest.raises(ValueError):
+        adapter.subscribe_terminal("term_1", 1001, 24)
     with pytest.raises(ValueError):
         adapter.rename_terminal("term_1", "  ")

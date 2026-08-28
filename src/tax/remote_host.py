@@ -171,7 +171,8 @@ class RemoteHost:
                 "terminals": [asdict(item) for item in self.runtime.list_terminals(workspace_id)],
             }
         if request.type is MessageType.TERMINAL_SUBSCRIBE:
-            return self._subscribe(str(payload["terminal_id"]))
+            columns, rows = self._dimensions(payload.get("columns"), payload.get("rows"))
+            return self._subscribe(str(payload["terminal_id"]), columns, rows)
         if request.type is MessageType.TERMINAL_INPUT:
             terminal_id = str(payload["terminal_id"])
             data = base64.b64decode(str(payload["data_b64"]), validate=True)
@@ -239,13 +240,26 @@ class RemoteHost:
             }
         raise ValueError(f"unsupported message type: {request.type}")
 
-    def _subscribe(self, terminal_id: str) -> dict[str, Any]:
+    @staticmethod
+    def _dimensions(columns: Any, rows: Any) -> tuple[int, int]:
+        if (
+            isinstance(columns, bool)
+            or isinstance(rows, bool)
+            or not isinstance(columns, int)
+            or not isinstance(rows, int)
+            or not 1 <= columns <= 1000
+            or not 1 <= rows <= 1000
+        ):
+            raise ValueError("terminal dimensions must be between 1 and 1000")
+        return columns, rows
+
+    def _subscribe(self, terminal_id: str, columns: int, rows: int) -> dict[str, Any]:
         self._close_terminal_subscription(terminal_id)
         stream_id = self._next_stream_id
         self._next_stream_id += 1
         self._generation += 1
         generation = self._generation
-        subscription = self.runtime.subscribe_terminal(terminal_id)
+        subscription = self.runtime.subscribe_terminal(terminal_id, columns, rows)
         self._subscriptions[stream_id] = subscription
         self._stream_terminal_ids[stream_id] = terminal_id
         self._stream_generations[stream_id] = generation
