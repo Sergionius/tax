@@ -66,6 +66,12 @@ final class RemoteWorkspaceStore {
     }
 
     func subscribe(terminalID: String) async {
+        if activeTerminalID == terminalID,
+           activeStreamID != nil,
+           activeGeneration != nil,
+           connectionState == .online {
+            return
+        }
         activeTerminalID = terminalID
         activeStreamID = nil
         activeGeneration = nil
@@ -177,6 +183,8 @@ final class RemoteWorkspaceStore {
         eventTask = nil
         if let client { Swift.Task { await client.close() } }
         client = nil
+        activeStreamID = nil
+        activeGeneration = nil
         if configuration != nil { connectionState = .reconnecting }
     }
 
@@ -217,6 +225,8 @@ final class RemoteWorkspaceStore {
                 errorMessage = error.localizedDescription
                 await client.close()
                 self.client = nil
+                activeStreamID = nil
+                activeGeneration = nil
                 if let configuration {
                     try? await Swift.Task.sleep(for: .seconds(1))
                     guard !Swift.Task.isCancelled else { return }

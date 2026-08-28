@@ -68,9 +68,10 @@ tax e2ee-key show | pbcopy
 ### 3. Orca pairing code для Mac host
 
 1. Откройте Orca на Mac.
-2. Откройте **Orca Mobile**.
-3. Сгенерируйте pairing code и выберите **Copy pairing code**.
-4. Сохраните код в защищённый файл:
+2. Откройте **Settings → Runtime Environments**.
+3. В секции **Share this Orca server** нажмите **New Link**.
+4. Сгенерируйте ссылку и выберите **Copy pairing URL**.
+5. Сохраните URL в защищённый файл:
 
 ```bash
 mkdir -p ~/.config/tax
@@ -79,7 +80,7 @@ pbpaste > ~/.config/tax/orca-pairing
 chmod 600 ~/.config/tax/orca-pairing
 ```
 
-Pairing code относится к Orca Runtime и не заменяет tax E2EE key.
+Нужен именно runtime pairing URL из **Share this Orca server**. Кнопка копирования в разделе **Orca Mobile** может выдать mobile/relay offer другого формата, который `tax remote-host` не принимает. Pairing URL относится к Orca Runtime и не заменяет tax E2EE key.
 
 ## Подключение iPhone
 

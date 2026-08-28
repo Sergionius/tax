@@ -22,6 +22,7 @@ struct TerminalWebView: UIViewRepresentable {
         view.isOpaque = false
         view.scrollView.isScrollEnabled = false
         context.coordinator.webView = view
+        view.navigationDelegate = context.coordinator
         view.loadHTMLString(Self.html, baseURL: Bundle.main.resourceURL)
         return view
     }
@@ -47,12 +48,14 @@ struct TerminalWebView: UIViewRepresentable {
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "terminalInput")
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "terminalResize")
+        uiView.navigationDelegate = nil
     }
 
     @MainActor
-    final class Coordinator: NSObject, WKScriptMessageHandler, TerminalRenderer {
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, TerminalRenderer {
         weak var webView: WKWebView?
         var lastData = Data()
+        private var isReady = false
         private let onInput: @MainActor (String) -> Void
         private let onResize: @MainActor (Int, Int) -> Void
 
@@ -63,9 +66,18 @@ struct TerminalWebView: UIViewRepresentable {
 
         func restore(snapshot: Data) { evaluate(method: "reset", data: snapshot) }
         func write(data: Data) { evaluate(method: "write", data: data) }
-        func clear() { webView?.evaluateJavaScript("window.taxTerminal.reset('')") }
+        func clear() {
+            guard isReady else { return }
+            webView?.evaluateJavaScript("window.taxTerminal.reset('')")
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+            isReady = true
+            if !lastData.isEmpty { restore(snapshot: lastData) }
+        }
 
         private func evaluate(method: String, data: Data) {
+            guard isReady else { return }
             webView?.evaluateJavaScript("window.taxTerminal.\(method)('\(data.base64EncodedString())')")
         }
 

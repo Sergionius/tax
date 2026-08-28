@@ -48,6 +48,15 @@ if ! "$TAX_BIN" e2ee-key show >/dev/null 2>&1; then
   echo "❌ tax E2EE key is missing; run: tax e2ee-key generate" >&2
   exit 1
 fi
+if ! command -v orca >/dev/null 2>&1; then
+  echo "❌ Orca CLI is missing from PATH" >&2
+  exit 1
+fi
+if ! ORCA_PAIRING_CODE="$(<"$PAIRING_FILE")" orca status --json >/dev/null 2>&1; then
+  echo "❌ invalid or revoked Orca runtime pairing URL" >&2
+  echo "   Generate it in Orca: Settings → Runtime Environments → Share this Orca server → New Link" >&2
+  exit 1
+fi
 if ! python3 - "$HOME/.config/tax/config.json" <<'PY'
 import json
 import sys
