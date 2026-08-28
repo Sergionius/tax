@@ -9,6 +9,7 @@ final class RemoteWorkspaceStore {
     var terminals: [String: [RemoteTerminal]] = [:]
     var terminalRenderUpdate = TerminalRenderUpdate.empty
     var terminalSnapshotReady = false
+    var terminalReconnectInProgress = false
     var fileEntries: [String: [RemoteFileEntry]] = [:]
     var fileSearchResults: [RemoteFileEntry] = []
     var openDocument: RemoteFileDocument?
@@ -90,6 +91,7 @@ final class RemoteWorkspaceStore {
         activeStreamID = nil
         activeGeneration = nil
         terminalSnapshotReady = false
+        terminalReconnectInProgress = false
         terminalClientSequence = 0
         sentTerminalViewport = nil
         do {
@@ -126,12 +128,14 @@ final class RemoteWorkspaceStore {
 
     func setSnapshotReady() {
         terminalSnapshotReady = true
+        terminalReconnectInProgress = false
     }
 
     func rendererDidChange() {
         activeStreamID = nil
         activeGeneration = nil
         sentTerminalViewport = nil
+        terminalReconnectInProgress = terminalSnapshotReady
         terminalSnapshotReady = false
         terminalFlushTask?.cancel()
         terminalFlushTask = nil
@@ -240,7 +244,7 @@ final class RemoteWorkspaceStore {
         client = nil
         activeStreamID = nil
         activeGeneration = nil
-        terminalSnapshotReady = false
+        terminalReconnectInProgress = terminalSnapshotReady
         terminalFlushTask?.cancel()
         terminalFlushTask = nil
         pendingTerminalOutput.removeAll(keepingCapacity: true)
@@ -267,6 +271,7 @@ final class RemoteWorkspaceStore {
         activeStreamID = nil
         activeGeneration = nil
         terminalSnapshotReady = false
+        terminalReconnectInProgress = false
         terminalFlushTask?.cancel()
         terminalFlushTask = nil
         pendingTerminalOutput.removeAll(keepingCapacity: true)
@@ -290,7 +295,7 @@ final class RemoteWorkspaceStore {
                 self.client = nil
                 activeStreamID = nil
                 activeGeneration = nil
-                terminalSnapshotReady = false
+                terminalReconnectInProgress = terminalSnapshotReady
                 terminalFlushTask?.cancel()
                 terminalFlushTask = nil
                 pendingTerminalOutput.removeAll(keepingCapacity: true)
@@ -362,7 +367,11 @@ final class RemoteWorkspaceStore {
         if let streamID = payload["stream_id"]?.int, let generation = payload["generation"]?.int {
             activeStreamID = UInt32(streamID)
             activeGeneration = UInt64(generation)
-            terminalSnapshotReady = false
+            // Never let output buffered for the previous stream escape into a
+            // newly subscribed generation.
+            terminalFlushTask?.cancel()
+            terminalFlushTask = nil
+            pendingTerminalOutput.removeAll(keepingCapacity: true)
             sentTerminalViewport = pendingTerminalViewport
         }
     }
@@ -374,8 +383,7 @@ final class RemoteWorkspaceStore {
             terminalFlushTask?.cancel()
             terminalFlushTask = nil
             pendingTerminalOutput.removeAll(keepingCapacity: true)
-            publishTerminal(data: frame.payload, resetsTerminal: true)
-            terminalSnapshotReady = true
+            publishTerminal(data: frame.payload, generation: frame.generation, resetsTerminal: true)
         case .output:
             pendingTerminalOutput.append(frame.payload)
             scheduleTerminalFlush()
@@ -395,10 +403,11 @@ final class RemoteWorkspaceStore {
         }
     }
 
-    private func publishTerminal(data: Data, resetsTerminal: Bool) {
+    private func publishTerminal(data: Data, generation: UInt64? = nil, resetsTerminal: Bool) {
         terminalRenderSequence &+= 1
         terminalRenderUpdate = TerminalRenderUpdate(
             sequence: terminalRenderSequence,
+            generation: generation,
             resetsTerminal: resetsTerminal,
             data: data
         )

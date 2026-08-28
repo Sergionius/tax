@@ -19,6 +19,7 @@ struct TerminalWebView: UIViewRepresentable {
         view.scrollView.bounces = false
         view.scrollView.keyboardDismissMode = .interactive
         context.coordinator.webView = view
+        pipeline.rendererDidMount()
         view.navigationDelegate = context.coordinator
         view.loadHTMLString(Self.html, baseURL: Bundle.main.resourceURL)
         return view

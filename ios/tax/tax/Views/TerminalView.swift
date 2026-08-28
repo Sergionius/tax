@@ -22,8 +22,21 @@ struct TerminalView: View {
                             .foregroundStyle(.white)
                             .padding(14)
                             .background(.black.opacity(0.72), in: .rect(cornerRadius: 12))
+                    } else if store.terminalReconnectInProgress {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Reconnecting…")
+                        }
+                        .tint(.white)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.black.opacity(0.72), in: .capsule)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .padding(.top, 8)
                     }
                 }
+                .allowsHitTesting(false)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack {

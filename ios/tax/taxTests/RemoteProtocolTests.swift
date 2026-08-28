@@ -90,6 +90,20 @@ struct RemoteProtocolTests {
         #expect(throws: RemoteClientError.self) { try RemoteTerminalFrame(data: frame) }
     }
 
+    @Test func pipelineDoesNotApplySnapshotBeforeRendererReadiness() {
+        let surface = MockTerminalSurface()
+        let pipeline = TerminalRenderPipeline()
+        pipeline.surface = surface
+
+        pipeline.enqueue(TerminalRenderUpdate(sequence: 1, resetsTerminal: true, data: Data("snapshot".utf8)))
+        #expect(pipeline.snapshotReceived)
+        #expect(!pipeline.snapshotApplied)
+        #expect(surface.appliedUpdates.isEmpty)
+
+        pipeline.rendererDidBecomeReady(viewport: TerminalRendererViewport(columns: 80, rows: 25))
+        #expect(surface.appliedUpdates.count == 1)
+    }
+
     @Test func pipelineDropsStaleSequenceUpdates() {
         let surface = MockTerminalSurface()
         let pipeline = TerminalRenderPipeline()
@@ -110,8 +124,8 @@ struct RemoteProtocolTests {
         let pipeline = TerminalRenderPipeline()
         pipeline.surface = surface
 
-        let first = TerminalRenderUpdate(sequence: 1, resetsTerminal: true, data: Data("first".utf8))
-        let second = TerminalRenderUpdate(sequence: 2, resetsTerminal: true, data: Data("second".utf8))
+        let first = TerminalRenderUpdate(sequence: 1, generation: 10, resetsTerminal: true, data: Data("first".utf8))
+        let second = TerminalRenderUpdate(sequence: 2, generation: 11, resetsTerminal: true, data: Data("second".utf8))
         pipeline.enqueue(first)
         pipeline.enqueue(second)
         pipeline.rendererDidBecomeReady(viewport: TerminalRendererViewport(columns: 80, rows: 25))
@@ -146,5 +160,20 @@ struct RemoteProtocolTests {
         #expect(surface.appliedUpdates.count == 2)
         #expect(surface.appliedUpdates[1].data == Data("ab".utf8))
         #expect(!surface.appliedUpdates[1].resetsTerminal)
+        #expect(pipeline.snapshotApplied)
+    }
+
+    @Test func pipelineSuppressesDuplicateViewportChanges() async throws {
+        let surface = MockTerminalSurface()
+        let pipeline = TerminalRenderPipeline()
+        pipeline.surface = surface
+        var changes = [TerminalRendererViewport]()
+        pipeline.onViewportReady = { _ in }
+        pipeline.onViewportChanged = { changes.append($0) }
+        pipeline.rendererDidBecomeReady(viewport: TerminalRendererViewport(columns: 80, rows: 25))
+        pipeline.rendererViewportDidChange(TerminalRendererViewport(columns: 100, rows: 30))
+        pipeline.rendererViewportDidChange(TerminalRendererViewport(columns: 100, rows: 30))
+        try await Swift.Task.sleep(for: .milliseconds(250))
+        #expect(changes == [TerminalRendererViewport(columns: 100, rows: 30)])
     }
 }

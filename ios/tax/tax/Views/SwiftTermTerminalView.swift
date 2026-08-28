@@ -21,6 +21,7 @@ struct SwiftTermTerminalView: UIViewRepresentable {
         view.keyboardDismissMode = .interactive
         view.terminalDelegate = context.coordinator
         context.coordinator.terminalView = view
+        pipeline.rendererDidMount()
         pipeline.surface = context.coordinator
         return view
     }

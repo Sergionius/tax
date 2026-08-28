@@ -164,8 +164,16 @@ protocol TerminalRendererDelegate: AnyObject {
 
 struct TerminalRenderUpdate: Equatable, Sendable {
     let sequence: UInt64
+    let generation: UInt64?
     let resetsTerminal: Bool
     let data: Data
+
+    init(sequence: UInt64, generation: UInt64? = nil, resetsTerminal: Bool, data: Data) {
+        self.sequence = sequence
+        self.generation = generation
+        self.resetsTerminal = resetsTerminal
+        self.data = data
+    }
 
     static let empty = TerminalRenderUpdate(sequence: 0, resetsTerminal: true, data: Data())
 }

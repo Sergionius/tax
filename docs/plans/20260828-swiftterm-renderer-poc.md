@@ -138,17 +138,17 @@ SwiftTerm предоставляет UIKit `TerminalView`, методы `feed(by
 - Modify: `ios/tax/tax/Stores/RemoteWorkspaceStore.swift`
 - Modify: `ios/tax/taxTests/RemoteProtocolTests.swift`
 
-- [ ] Разделить состояния `renderer ready`, `snapshot received` и `snapshot applied`; не считать terminal визуально готовым сразу после получения сетевого frame.
-- [ ] Не очищать текущий экран пустым update при subscribe или reconnect.
-- [ ] При новом snapshot сбрасывать terminal state один раз, применять полный payload и только после renderer completion публиковать ожидающий incremental output.
-- [ ] Если до завершения snapshot приходит новый snapshot или generation, отбросить старый snapshot и относящийся к нему queued output.
-- [ ] До первого успешно применённого snapshot показывать нейтральный loading overlay; при reconnect оставлять последний успешно применённый экран видимым с компактным non-blocking reconnect overlay.
-- [ ] Не позволять loading/reconnect overlay перехватывать touch, scroll или keyboard focus после появления terminal content.
-- [ ] Debounce viewport changes на общем уровне и не отправлять повторный resize для неизменившихся columns/rows.
-- [ ] При появлении и скрытии клавиатуры дождаться стабилизации geometry, затем вычислить и отправить один актуальный viewport.
-- [ ] Если пользователь находился у нижней границы scrollback, после keyboard resize сохранить активный prompt над клавиатурой; если пользователь просматривал историю, не принудительно возвращать его вниз.
-- [ ] Сохранить нативную инерцию и scroll position SwiftTerm при incremental output; убрать из общего слоя любые предположения о JavaScript touch events.
-- [ ] Добавить pipeline tests для snapshot-before-readiness, output-during-snapshot, generation replacement, duplicate resize suppression и reconnect с сохранённым экраном.
+- [x] Разделить состояния `renderer ready`, `snapshot received` и `snapshot applied`; не считать terminal визуально готовым сразу после получения сетевого frame.
+- [x] Не очищать текущий экран пустым update при subscribe или reconnect.
+- [x] При новом snapshot сбрасывать terminal state один раз, применять полный payload и только после renderer completion публиковать ожидающий incremental output.
+- [x] Если до завершения snapshot приходит новый snapshot или generation, отбросить старый snapshot и относящийся к нему queued output.
+- [x] До первого успешно применённого snapshot показывать нейтральный loading overlay; при reconnect оставлять последний успешно применённый экран видимым с компактным non-blocking reconnect overlay.
+- [x] Не позволять loading/reconnect overlay перехватывать touch, scroll или keyboard focus после появления terminal content.
+- [x] Debounce viewport changes на общем уровне и не отправлять повторный resize для неизменившихся columns/rows.
+- [x] При появлении и скрытии клавиатуры дождаться стабилизации geometry, затем вычислить и отправить один актуальный viewport.
+- [x] Если пользователь находился у нижней границы scrollback, после keyboard resize сохранить активный prompt над клавиатурой; если пользователь просматривал историю, не принудительно возвращать его вниз.
+- [x] Сохранить нативную инерцию и scroll position SwiftTerm при incremental output; убрать из общего слоя любые предположения о JavaScript touch events.
+- [x] Добавить pipeline tests для snapshot-before-readiness, output-during-snapshot, generation replacement, duplicate resize suppression и reconnect с сохранённым экраном.
 
 ### Task 5: Зафиксировать границы PoC и сценарий сравнения renderer’ов
 
@@ -214,6 +214,7 @@ xcodebuild test \
 
 - Task 3 validation: `.venv/bin/ruff check server src tests` passed; `.venv/bin/pytest -q` passed (77 tests).
 - iOS unit tests passed (20 tests) and UI tests passed (3, 1 skipped) with package plugin validation skipped and warnings disabled.
+- Task 4 validation: the prescribed `xcodebuild build-for-testing ... SWIFT_TREAT_WARNINGS_AS_ERRORS=YES` still stops at the pre-existing SwiftTerm package-plugin validation failure. With `-skipPackagePluginValidation` and warnings disabled, the app/test targets built; `taxTests` passed (20 tests) and `taxUITests` passed (3, 1 skipped). The failure is external to Task 4 sources and matches the prior execution note.
 
 - The prescribed `xcodebuild build-for-testing ... SWIFT_TREAT_WARNINGS_AS_ERRORS=YES` stopped during SwiftTerm package-plugin validation. With plugin validation skipped, Xcode 26 exposed an external package conflict between `-suppress-warnings` and the requested `-warnings-as-errors`; neither diagnostic involves task sources.
 - Re-ran build/test validation with package plugin validation skipped and `SWIFT_TREAT_WARNINGS_AS_ERRORS=NO`; the app and test targets built, and all 20 `taxTests` passed.
