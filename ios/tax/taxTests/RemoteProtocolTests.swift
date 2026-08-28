@@ -2,6 +2,26 @@ import Foundation
 import Testing
 @testable import tax
 
+@MainActor
+private final class MockTerminalSurface: TerminalRendererSurface {
+    private(set) var appliedUpdates: [TerminalRenderUpdate] = []
+    private var pendingCompletions: [(@MainActor () -> Void)?] = []
+
+    func apply(update: TerminalRenderUpdate, completion: (@MainActor () -> Void)?) {
+        appliedUpdates.append(update)
+        pendingCompletions.append(completion)
+    }
+
+    func complete(at index: Int) {
+        guard pendingCompletions.indices.contains(index) else { return }
+        let completion = pendingCompletions[index]
+        pendingCompletions[index] = nil
+        completion?()
+    }
+
+    func requestFocus() {}
+}
+
 struct RemoteProtocolTests {
     @Test func cryptoMatchesPythonContractFixture() throws {
         let secret = Data(base64Encoded: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=")!
@@ -68,5 +88,63 @@ struct RemoteProtocolTests {
 
         frame[0] = 2
         #expect(throws: RemoteClientError.self) { try RemoteTerminalFrame(data: frame) }
+    }
+
+    @Test func pipelineDropsStaleSequenceUpdates() {
+        let surface = MockTerminalSurface()
+        let pipeline = TerminalRenderPipeline()
+        pipeline.surface = surface
+
+        let first = TerminalRenderUpdate(sequence: 1, resetsTerminal: true, data: Data("first".utf8))
+        let stale = TerminalRenderUpdate(sequence: 1, resetsTerminal: false, data: Data("stale".utf8))
+        pipeline.enqueue(first)
+        pipeline.rendererDidBecomeReady(viewport: TerminalRendererViewport(columns: 80, rows: 25))
+
+        #expect(surface.appliedUpdates.count == 1)
+        pipeline.enqueue(stale)
+        #expect(surface.appliedUpdates.count == 1)
+    }
+
+    @Test func pipelineReplacesPendingSnapshotWithNewerOne() {
+        let surface = MockTerminalSurface()
+        let pipeline = TerminalRenderPipeline()
+        pipeline.surface = surface
+
+        let first = TerminalRenderUpdate(sequence: 1, resetsTerminal: true, data: Data("first".utf8))
+        let second = TerminalRenderUpdate(sequence: 2, resetsTerminal: true, data: Data("second".utf8))
+        pipeline.enqueue(first)
+        pipeline.enqueue(second)
+        pipeline.rendererDidBecomeReady(viewport: TerminalRendererViewport(columns: 80, rows: 25))
+
+        #expect(surface.appliedUpdates.count == 1)
+        #expect(surface.appliedUpdates.first?.data == Data("second".utf8))
+    }
+
+    @Test func pipelinePreservesOutputOrderDuringSnapshotApplication() {
+        let surface = MockTerminalSurface()
+        let pipeline = TerminalRenderPipeline()
+        pipeline.surface = surface
+        pipeline.rendererDidBecomeReady(viewport: TerminalRendererViewport(columns: 80, rows: 25))
+
+        let snapshot = TerminalRenderUpdate(sequence: 1, resetsTerminal: true, data: Data("snapshot".utf8))
+        let outputA = TerminalRenderUpdate(sequence: 2, resetsTerminal: false, data: Data("a".utf8))
+        let outputB = TerminalRenderUpdate(sequence: 3, resetsTerminal: false, data: Data("b".utf8))
+
+        var snapshotApplied = false
+        pipeline.onSnapshotApplied = { snapshotApplied = true }
+
+        pipeline.enqueue(snapshot)
+        #expect(surface.appliedUpdates.count == 1)
+        #expect(!snapshotApplied)
+
+        pipeline.enqueue(outputA)
+        pipeline.enqueue(outputB)
+        #expect(surface.appliedUpdates.count == 1)
+
+        surface.complete(at: 0)
+        #expect(snapshotApplied)
+        #expect(surface.appliedUpdates.count == 2)
+        #expect(surface.appliedUpdates[1].data == Data("ab".utf8))
+        #expect(!surface.appliedUpdates[1].resetsTerminal)
     }
 }

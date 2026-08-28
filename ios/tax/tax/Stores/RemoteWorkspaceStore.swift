@@ -82,12 +82,11 @@ final class RemoteWorkspaceStore {
         activeGeneration = nil
         terminalSnapshotReady = false
         terminalClientSequence = 0
-        publishTerminal(data: Data(), resetsTerminal: true)
         do { try await client?.sendControl(type: "terminal.subscribe", payload: ["terminal_id": .string(terminalID)]) }
         catch { errorMessage = error.localizedDescription }
     }
 
-    func sendInput(terminalID: String, text: String) async {
+    func sendInput(terminalID: String, data: Data) async {
         guard terminalID == activeTerminalID,
               let streamID = activeStreamID,
               let generation = activeGeneration,
@@ -98,10 +97,18 @@ final class RemoteWorkspaceStore {
             streamID: streamID,
             generation: generation,
             sequence: terminalClientSequence,
-            payload: Data(text.utf8)
+            payload: data
         )
         do { try await client.sendTerminal(frame.encoded()) }
         catch { errorMessage = "Input delivery is ambiguous and was not repeated: \(error.localizedDescription)" }
+    }
+
+    func sendInput(terminalID: String, text: String) async {
+        await sendInput(terminalID: terminalID, data: Data(text.utf8))
+    }
+
+    func setSnapshotReady() {
+        terminalSnapshotReady = true
     }
 
     func resize(terminalID: String, columns: Int, rows: Int) async {

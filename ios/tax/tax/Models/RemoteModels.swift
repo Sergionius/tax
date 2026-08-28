@@ -143,6 +143,25 @@ indirect enum JSONValue: Codable, Sendable {
     var array: [JSONValue]? { if case let .array(value) = self { value } else { nil } }
 }
 
+struct TerminalRendererViewport: Equatable, Sendable {
+    let columns: Int
+    let rows: Int
+}
+
+@MainActor
+protocol TerminalRendererSurface: AnyObject {
+    func apply(update: TerminalRenderUpdate, completion: (@MainActor () -> Void)?)
+    func requestFocus()
+}
+
+@MainActor
+protocol TerminalRendererDelegate: AnyObject {
+    func rendererDidBecomeReady(viewport: TerminalRendererViewport)
+    func rendererViewportDidChange(_ viewport: TerminalRendererViewport)
+    func rendererDidReceiveInput(_ data: Data)
+    func rendererDidCompleteSnapshot()
+}
+
 struct TerminalRenderUpdate: Equatable, Sendable {
     let sequence: UInt64
     let resetsTerminal: Bool

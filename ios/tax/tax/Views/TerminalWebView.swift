@@ -1,22 +1,16 @@
 import SwiftUI
 @preconcurrency import WebKit
 
-protocol TerminalRenderer: AnyObject {
-    func render(_ update: TerminalRenderUpdate)
-    func clear()
-}
-
 struct TerminalWebView: UIViewRepresentable {
-    let update: TerminalRenderUpdate
-    let onInput: @MainActor (String) -> Void
-    let onResize: @MainActor (Int, Int) -> Void
+    let pipeline: TerminalRenderPipeline
 
-    func makeCoordinator() -> Coordinator { Coordinator(onInput: onInput, onResize: onResize) }
+    func makeCoordinator() -> Coordinator { Coordinator(pipeline: pipeline) }
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.add(context.coordinator, name: "terminalInput")
         configuration.userContentController.add(context.coordinator, name: "terminalResize")
+        configuration.userContentController.add(context.coordinator, name: "terminalAck")
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.isOpaque = false
         view.backgroundColor = .clear
@@ -30,77 +24,72 @@ struct TerminalWebView: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: WKWebView, context: Context) {
-        context.coordinator.render(update)
-    }
+    func updateUIView(_ view: WKWebView, context: Context) {}
 
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "terminalInput")
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "terminalResize")
+        uiView.configuration.userContentController.removeScriptMessageHandler(forName: "terminalAck")
         uiView.navigationDelegate = nil
+        coordinator.pipeline?.surface = nil
     }
 
     @MainActor
-    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, TerminalRenderer {
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, TerminalRendererSurface {
         weak var webView: WKWebView?
-        private var lastSequence: UInt64 = 0
+        weak var pipeline: TerminalRenderPipeline?
+        private var snapshotGeneration = 0
+        private var pendingAckGeneration = 0
+        private var pendingCompletion: (@MainActor () -> Void)?
         private var isReady = false
-        private var pendingReset = false
-        private var pendingData = Data()
-        private let onInput: @MainActor (String) -> Void
-        private let onResize: @MainActor (Int, Int) -> Void
 
-        init(onInput: @escaping @MainActor (String) -> Void, onResize: @escaping @MainActor (Int, Int) -> Void) {
-            self.onInput = onInput
-            self.onResize = onResize
+        init(pipeline: TerminalRenderPipeline) {
+            self.pipeline = pipeline
         }
 
-        func render(_ update: TerminalRenderUpdate) {
-            guard update.sequence > lastSequence else { return }
-            lastSequence = update.sequence
-            if !isReady {
-                if update.resetsTerminal {
-                    pendingReset = true
-                    pendingData = update.data
-                } else {
-                    pendingData.append(update.data)
-                }
+        func apply(update: TerminalRenderUpdate, completion: (@MainActor () -> Void)?) {
+            guard webView != nil else {
+                completion?()
                 return
             }
-            evaluate(update)
-        }
-
-        func clear() {
-            pendingReset = true
-            pendingData.removeAll(keepingCapacity: true)
-            guard isReady else { return }
-            evaluate(TerminalRenderUpdate(sequence: lastSequence, resetsTerminal: true, data: Data()))
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-            isReady = true
-            if pendingReset || !pendingData.isEmpty {
-                evaluate(TerminalRenderUpdate(sequence: lastSequence, resetsTerminal: pendingReset, data: pendingData))
-                pendingReset = false
-                pendingData.removeAll(keepingCapacity: true)
+            if update.resetsTerminal {
+                snapshotGeneration += 1
+                pendingAckGeneration = snapshotGeneration
+                pendingCompletion = completion
             }
-        }
-
-        private func evaluate(_ update: TerminalRenderUpdate) {
             let reset = update.resetsTerminal ? "true" : "false"
             webView?.evaluateJavaScript("window.taxTerminal.push('\(update.data.base64EncodedString())', \(reset))")
         }
 
+        func requestFocus() {
+            webView?.evaluateJavaScript("document.getElementById('terminal').focus()")
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+            pipeline?.surface = self
+        }
+
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "terminalInput",
-               let bytes = message.body as? [UInt8],
-               let text = String(bytes: bytes, encoding: .utf8) {
-                onInput(text)
+               let bytes = message.body as? [UInt8] {
+                pipeline?.rendererDidReceiveInput(Data(bytes))
             } else if message.name == "terminalResize",
                       let body = message.body as? [String: Int],
                       let columns = body["columns"],
                       let rows = body["rows"] {
-                onResize(columns, rows)
+                let viewport = TerminalRendererViewport(columns: columns, rows: rows)
+                if !isReady {
+                    isReady = true
+                    pipeline?.rendererDidBecomeReady(viewport: viewport)
+                } else {
+                    pipeline?.rendererViewportDidChange(viewport)
+                }
+            } else if message.name == "terminalAck" {
+                if pendingAckGeneration == snapshotGeneration {
+                    let completion = pendingCompletion
+                    pendingCompletion = nil
+                    completion?()
+                }
             }
         }
     }
@@ -124,24 +113,12 @@ struct TerminalWebView: UIViewRepresentable {
       Array.from(new TextEncoder().encode(value))
     ));
 
-    let renderQueue = [], writing = false;
-    const bytes = value => Uint8Array.from(atob(value), character => character.charCodeAt(0));
-    function flushRenderQueue(){
-      if(writing || renderQueue.length===0) return;
-      writing=true;
-      let resetIndex=-1;
-      for(let index=0; index<renderQueue.length; index++) if(renderQueue[index].reset) resetIndex=index;
-      if(resetIndex>=0){ terminal.reset(); renderQueue=renderQueue.slice(resetIndex); }
-      const items=renderQueue.splice(0);
-      const size=items.reduce((total,item)=>total+item.data.length,0);
-      const combined=new Uint8Array(size); let offset=0;
-      for(const item of items){ combined.set(item.data,offset); offset+=item.data.length; }
-      if(combined.length===0){ writing=false; flushRenderQueue(); return; }
-      terminal.write(combined,()=>{ writing=false; requestAnimationFrame(flushRenderQueue); });
-    }
     window.taxTerminal={push:(value,reset)=>{
-      renderQueue.push({data:bytes(value),reset});
-      requestAnimationFrame(flushRenderQueue);
+      const bytes = Uint8Array.from(atob(value), c => c.charCodeAt(0));
+      if (reset) terminal.reset();
+      terminal.write(bytes, () => {
+        if (reset) webkit.messageHandlers.terminalAck.postMessage(null);
+      });
     }};
 
     let resizeTimer, lastColumns=0, lastRows=0;

@@ -3,48 +3,65 @@ import SwiftUI
 struct TerminalView: View {
     let terminal: RemoteTerminal
     @Environment(RemoteWorkspaceStore.self) private var store
+    @State private var pipeline = TerminalRenderPipeline()
     @State private var controlArmed = false
 
     var body: some View {
         VStack(spacing: 0) {
-            TerminalWebView(update: store.terminalRenderUpdate) { text in
-                Swift.Task { await store.sendInput(terminalID: terminal.id, text: controlArmed ? control(text) : text); controlArmed = false }
-            } onResize: { columns, rows in
-                Swift.Task { await store.resize(terminalID: terminal.id, columns: columns, rows: rows) }
-            }
-            .background(Color(red: 0.06, green: 0.067, blue: 0.08))
-            .overlay {
-                if !store.terminalSnapshotReady {
-                    ProgressView("Loading terminal…")
-                        .tint(.white)
-                        .foregroundStyle(.white)
-                        .padding(14)
-                        .background(.black.opacity(0.72), in: .rect(cornerRadius: 12))
+            TerminalRendererHost(pipeline: pipeline)
+                .background(Color(red: 0.06, green: 0.067, blue: 0.08))
+                .onChange(of: store.terminalRenderUpdate) { _, update in
+                    pipeline.enqueue(update)
                 }
-            }
+                .overlay {
+                    if !store.terminalSnapshotReady {
+                        ProgressView("Loading terminal…")
+                            .tint(.white)
+                            .foregroundStyle(.white)
+                            .padding(14)
+                            .background(.black.opacity(0.72), in: .rect(cornerRadius: 12))
+                    }
+                }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack {
-                    key("esc", "\u{1B}")
-                    key("tab", "\t")
+                    key("esc", Data([0x1B]))
+                    key("tab", Data([0x09]))
                     Button(controlArmed ? "Ctrl ✓" : "Ctrl") { controlArmed.toggle() }.buttonStyle(.bordered)
-                    key("C", "\u{3}")
-                    key("←", "\u{1B}[D"); key("↑", "\u{1B}[A"); key("↓", "\u{1B}[B"); key("→", "\u{1B}[C")
-                    key("enter", "\r")
+                    key("C", Data([0x03]))
+                    key("←", Data([0x1B, 0x5B, 0x44]))
+                    key("↑", Data([0x1B, 0x5B, 0x41]))
+                    key("↓", Data([0x1B, 0x5B, 0x42]))
+                    key("→", Data([0x1B, 0x5B, 0x43]))
+                    key("enter", Data([0x0D]))
                 }.padding(8)
             }.background(.bar)
         }
         .navigationTitle(terminal.title)
         .navigationBarTitleDisplayMode(.inline)
         .task { await store.subscribe(terminalID: terminal.id) }
+        .onAppear {
+            pipeline.onInput = { data in
+                Swift.Task { await store.sendInput(terminalID: terminal.id, data: data) }
+            }
+            pipeline.onViewportReady = { viewport in
+                Swift.Task { await store.resize(terminalID: terminal.id, columns: viewport.columns, rows: viewport.rows) }
+            }
+            pipeline.onViewportChanged = { viewport in
+                Swift.Task { await store.resize(terminalID: terminal.id, columns: viewport.columns, rows: viewport.rows) }
+            }
+            pipeline.onSnapshotApplied = {
+                store.setSnapshotReady()
+            }
+        }
     }
 
-    private func key(_ title: String, _ value: String) -> some View {
-        Button(title) { Swift.Task { await store.sendInput(terminalID: terminal.id, text: value) } }.buttonStyle(.bordered)
+    private func key(_ title: String, _ data: Data) -> some View {
+        Button(title) { Swift.Task { await store.sendInput(terminalID: terminal.id, data: data) } }.buttonStyle(.bordered)
     }
 
-    private func control(_ text: String) -> String {
-        guard let scalar = text.lowercased().unicodeScalars.first, scalar.value >= 96, scalar.value <= 127 else { return text }
-        return String(UnicodeScalar(scalar.value - 96)!)
+    private func control(_ text: String) -> Data {
+        guard let scalar = text.lowercased().unicodeScalars.first, scalar.value >= 96, scalar.value <= 127 else { return Data(text.utf8) }
+        return Data([UInt8(scalar.value - 96)])
     }
 }

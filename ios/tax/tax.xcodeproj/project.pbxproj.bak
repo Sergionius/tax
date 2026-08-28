@@ -14,7 +14,6 @@
 		5B25733F69F3A0E5553C48DA /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 899615913B28E2734271C4C7 /* Foundation.framework */; };
 		7E87271674070F4299BEF256 /* task-full.json in Resources */ = {isa = PBXBuildFile; fileRef = 9509B60C8FDDCBE680FBC46F /* task-full.json */; };
 		8AF062126FE4122D368D6E68 /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D4265344A42B4E767C45525 /* ModelTests.swift */; };
-		B2C3D4E5F678901234567890 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6789012345678 /* SwiftTerm */; };
 		E2AF707F4A52B600C23FB205 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 899615913B28E2734271C4C7 /* Foundation.framework */; };
 		E45D53B69E036C7B82E21566 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A82E4D6F25FAE36CC710FC /* TestSupport.swift */; };
 		FCDF3CD854FC39A87147C2AA /* SettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5669ED4A77C43BE367CB1FD9 /* SettingsStoreTests.swift */; };
@@ -78,7 +77,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B2C3D4E5F678901234567890 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -215,9 +213,6 @@
 				A634221C30079B8A00A02DD1 /* tax */,
 			);
 			name = tax;
-			packageProductDependencies = (
-				A1B2C3D4E5F6789012345678 /* SwiftTerm */,
-			);
 			productName = tax;
 			productReference = A634221A30079B8A00A02DD1 /* tax.app */;
 			productType = "com.apple.product-type.application";
@@ -246,9 +241,6 @@
 			);
 			mainGroup = A634221130079B8A00A02DD1;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				F8B4C7D2E1A0567890123456 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A634221B30079B8A00A02DD1 /* Products */;
 			projectDirPath = "";
@@ -642,25 +634,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		F8B4C7D2E1A0567890123456 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
-			requirement = {
-				kind = exactVersion;
-				version = 1.20.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		A1B2C3D4E5F6789012345678 /* SwiftTerm */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F8B4C7D2E1A0567890123456 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
-			productName = SwiftTerm;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A634221230079B8A00A02DD1 /* Project object */;
 }
