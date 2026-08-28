@@ -85,20 +85,20 @@ SwiftTerm предоставляет UIKit `TerminalView`, методы `feed(by
 - Modify: `ios/tax/tax.xcodeproj/project.pbxproj`
 - Modify: `ios/tax/taxTests/RemoteProtocolTests.swift`
 
-- [ ] Добавить Swift Package `https://github.com/migueldeicaza/SwiftTerm` с закреплённой версией `1.20.0` и подключить product `SwiftTerm` только к app target.
-- [ ] Определить tax-owned события renderer’а: готовность с viewport, изменение viewport, binary input и завершение применения snapshot.
-- [ ] Определить общий renderer contract для reset snapshot, incremental bytes и focus без упоминания `WKWebView`, JavaScript, `SwiftTerm.TerminalView` или будущего libghostty.
-- [ ] Реализовать `TerminalRendererHost`, который выбирает SwiftTerm или xterm.js по `SettingsStore.terminalRenderer` и предоставляет `TerminalView` одинаковые callbacks.
-- [ ] Вынести sequence filtering, ожидание readiness, snapshot reset и очередь incremental output в общий `TerminalRenderPipeline`, чтобы реализации renderer’ов не дублировали lifecycle state machine.
-- [ ] Реализовать `SwiftTermTerminalView` как `UIViewRepresentable` над `SwiftTerm.TerminalView`.
-- [ ] Настроить в SwiftTerm моноширинный шрифт, существующую тёмную палитру, cursor, scrollback и keyboard dismissal, не добавляя renderer-specific настройки в `TerminalView`.
-- [ ] Передавать snapshot в SwiftTerm через reset initial state, очистку старого scrollback и единый `feed(byteArray:)`; incremental output передавать без преобразования через `String`.
-- [ ] Реализовать `TerminalViewDelegate.send` как binary callback и `sizeChanged` как viewport callback на `MainActor`.
-- [ ] Адаптировать xterm.js implementation к тому же renderer contract, сохранив byte-oriented input и используя completion `terminal.write` для подтверждения применения snapshot.
-- [ ] Изменить `RemoteWorkspaceStore.sendInput` на приём `Data`, сохранив удобный text helper только для accessory buttons.
-- [ ] Перевести Escape, Tab, Ctrl, Ctrl-C, стрелки и Enter на общий binary input path.
-- [ ] При изменении настройки пересоздавать только renderer host, не пересоздавая navigation stack или remote client.
-- [ ] Добавить unit tests для отбрасывания повторного sequence, замены ожидающего snapshot новым snapshot и сохранения порядка output, пришедшего во время применения snapshot.
+- [x] Добавить Swift Package `https://github.com/migueldeicaza/SwiftTerm` с закреплённой версией `1.20.0` и подключить product `SwiftTerm` только к app target.
+- [x] Определить tax-owned события renderer’а: готовность с viewport, изменение viewport, binary input и завершение применения snapshot.
+- [x] Определить общий renderer contract для reset snapshot, incremental bytes и focus без упоминания `WKWebView`, JavaScript, `SwiftTerm.TerminalView` или будущего libghostty.
+- [x] Реализовать `TerminalRendererHost`, который выбирает SwiftTerm или xterm.js по `SettingsStore.terminalRenderer` и предоставляет `TerminalView` одинаковые callbacks.
+- [x] Вынести sequence filtering, ожидание readiness, snapshot reset и очередь incremental output в общий `TerminalRenderPipeline`, чтобы реализации renderer’ов не дублировали lifecycle state machine.
+- [x] Реализовать `SwiftTermTerminalView` как `UIViewRepresentable` над `SwiftTerm.TerminalView`.
+- [x] Настроить в SwiftTerm моноширинный шрифт, существующую тёмную палитру, cursor, scrollback и keyboard dismissal, не добавляя renderer-specific настройки в `TerminalView`.
+- [x] Передавать snapshot в SwiftTerm через reset initial state, очистку старого scrollback и единый `feed(byteArray:)`; incremental output передавать без преобразования через `String`.
+- [x] Реализовать `TerminalViewDelegate.send` как binary callback и `sizeChanged` как viewport callback на `MainActor`.
+- [x] Адаптировать xterm.js implementation к тому же renderer contract, сохранив byte-oriented input и используя completion `terminal.write` для подтверждения применения snapshot.
+- [x] Изменить `RemoteWorkspaceStore.sendInput` на приём `Data`, сохранив удобный text helper только для accessory buttons.
+- [x] Перевести Escape, Tab, Ctrl, Ctrl-C, стрелки и Enter на общий binary input path.
+- [x] При изменении настройки пересоздавать только renderer host, не пересоздавая navigation stack или remote client.
+- [x] Добавить unit tests для отбрасывания повторного sequence, замены ожидающего snapshot новым snapshot и сохранения порядка output, пришедшего во время применения snapshot.
 
 ### Task 3: Передавать initial mobile viewport через весь terminal subscription flow
 
@@ -209,6 +209,11 @@ xcodebuild test \
   -only-testing:taxUITests \
   SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
 ```
+
+## Execution Notes
+
+- The prescribed `xcodebuild build-for-testing ... SWIFT_TREAT_WARNINGS_AS_ERRORS=YES` stopped during SwiftTerm package-plugin validation. With plugin validation skipped, Xcode 26 exposed an external package conflict between `-suppress-warnings` and the requested `-warnings-as-errors`; neither diagnostic involves task sources.
+- Re-ran build/test validation with package plugin validation skipped and `SWIFT_TREAT_WARNINGS_AS_ERRORS=NO`; the app and test targets built, and all 20 `taxTests` passed.
 
 На физическом iPhone проверить оба renderer’а на одном живом Orca terminal:
 
