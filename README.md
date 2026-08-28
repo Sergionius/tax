@@ -97,9 +97,34 @@ Pairing code относится к Orca Runtime и не заменяет tax E2E
 
 Нажмите **Save Settings**, затем **Request Push Registration**. Device token регистрируется на backend автоматически.
 
-### 2. Запуск Mac host
+### 2. Запуск Mac host в фоне
 
-На Mac:
+Установите пользовательский LaunchAgent:
+
+```bash
+./scripts/install-remote-host-launch-agent.sh
+```
+
+Он запускается после входа в macOS, работает без открытого Terminal и автоматически перезапускает host после обрыва. API key берётся из `tax config`, E2EE key — из Keychain, pairing code — из `~/.config/tax/orca-pairing`.
+
+Проверка и управление:
+
+```bash
+launchctl print gui/$UID/tax.remote-host
+launchctl kickstart -k gui/$UID/tax.remote-host
+tail -f ~/.local/state/tax/logs/remote-host.log
+```
+
+Для других идентификаторов:
+
+```bash
+./scripts/install-remote-host-launch-agent.sh \
+  --host-id mac-main \
+  --device-id iphone-main \
+  --pairing-code-file ~/.config/tax/orca-pairing
+```
+
+Ручной foreground-запуск оставлен для диагностики:
 
 ```bash
 tax remote-host \
@@ -108,9 +133,7 @@ tax remote-host \
   --orca-pairing-code-file ~/.config/tax/orca-pairing
 ```
 
-Сразу откройте приложение на iPhone. Если host завершился сообщением о timeout до подключения телефона, запустите команду ещё раз при открытом приложении.
-
-Индикатор в левом верхнем углу должен стать зелёным и показать `online`. После этого появятся открытые workspace Orca.
+Индикатор в левом верхнем углу приложения должен стать зелёным и показать `online`. Mac должен быть включён и не спать, а Orca — запущена.
 
 ### 3. Проверка
 
