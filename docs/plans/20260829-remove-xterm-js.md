@@ -75,10 +75,10 @@
 - Modify: `README.md`
 - Modify: `ios/README-REMOTE.md`
 
-- [ ] Описать SwiftTerm как единственный bundled terminal renderer, сохранив пояснение о независимом tax-owned renderer contract.
-- [ ] Удалить описание локального выбора renderer’а, xterm.js fallback, WebKit и vendored-лицензии.
-- [ ] Заменить сценарии сравнения SwiftTerm и xterm.js на актуальную проверку работы единственного SwiftTerm renderer’а: snapshot, scrollback, быстрый input, клавиатура, alternate screen и reconnect.
-- [ ] Проверить, что активная документация больше не предлагает переключение на xterm.js, не изменяя исторические планы.
+- [x] Описать SwiftTerm как единственный bundled terminal renderer, сохранив пояснение о независимом tax-owned renderer contract.
+- [x] Удалить описание локального выбора renderer’а, xterm.js fallback, WebKit и vendored-лицензии.
+- [x] Заменить сценарии сравнения SwiftTerm и xterm.js на актуальную проверку работы единственного SwiftTerm renderer’а: snapshot, scrollback, быстрый input, клавиатура, alternate screen и reconnect.
+- [x] Проверить, что активная документация больше не предлагает переключение на xterm.js, не изменяя исторические планы.
 
 ## Validation
 
@@ -130,4 +130,5 @@ rg -n -i 'xterm(\.js)?|XTERM-LICENSE|TerminalWebView|tax\.terminalRenderer' \
 
 ## Execution Notes
 
-- Build, unit tests, and UI tests passed. The active-reference `rg` command reports only the documentation references reserved for Task 2; the same search is clean across `ios/tax/tax`, `ios/tax/taxTests`, and `ios/tax/taxUITests`.
+- Build, unit tests, and UI tests passed for Task 1.
+- Task 2 documentation validation passed: the active-reference `rg` command found no matches in `README.md`, `ios/README-REMOTE.md`, `ios/tax/tax`, `ios/tax/taxTests`, or `ios/tax/taxUITests`.

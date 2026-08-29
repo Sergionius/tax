@@ -4,23 +4,20 @@ The app root is now the live Orca workspace inventory. Configure the backend URL
 
 `RemoteClient` implements the v1 HKDF/ChaCha20-Poly1305 relay session. `RemoteWorkspaceStore` owns visible connection state, workspace/terminal inventory, operation acknowledgements, stream generations, reconnect, and fresh subscriptions. Input with an ambiguous acknowledgement is reported and never automatically replayed.
 
-Terminal rendering is isolated behind a tax-owned renderer contract. SwiftTerm 1.20.0 is the default renderer; xterm.js 5.5 in `WKWebView` remains an available fallback, with its vendored license in `Resources/Terminal/XTERM-LICENSE`. The contract covers renderer readiness with a viewport, viewport changes, binary input, snapshot reset/application completion, incremental bytes, and focus. A future libghostty adapter must implement only this contract; it must not change `RemoteWorkspaceStore`, the remote protocol, or the Mac host.
-
-The renderer choice is local to this device and is persisted immediately in `UserDefaults` (SwiftTerm is used when no valid choice is stored). Switching renderers creates a new renderer viewport and terminal subscription without replacing the navigation stack or remote client.
+Terminal rendering is isolated behind an independent tax-owned renderer contract. SwiftTerm 1.20.0 is the only bundled terminal renderer. The contract covers renderer readiness with a viewport, viewport changes, binary input, snapshot reset/application completion, incremental bytes, and focus. A future libghostty adapter must implement only this contract; it must not change `RemoteWorkspaceStore`, the remote protocol, or the Mac host.
 
 `TerminalView` forwards ordinary keyboard and paste input and provides Escape, Tab, Ctrl, Ctrl-C, arrows, and Enter controls. Renderer cell metrics produce terminal resize operations.
 
-### Physical renderer comparison acceptance
+### Terminal renderer acceptance
 
-Using the same live Orca terminal session on a physical iPhone, run this sequence with SwiftTerm and then xterm.js:
+Using a live Orca terminal session on a physical iPhone, verify the only bundled SwiftTerm renderer:
 
-1. Start with the default SwiftTerm selection and verify that the initial snapshot appears as one complete screen.
-2. Create substantial scrollback and verify smooth scrolling, native inertia, and stable position while output arrives.
+1. Verify that the initial snapshot appears as one complete screen.
+2. Create substantial scrollback and verify smooth scrolling and a stable position while output arrives.
 3. Type rapidly and verify that input is neither delayed nor duplicated.
 4. Open the keyboard and verify that the active prompt remains visible; close it and verify the viewport recovers.
 5. Run Pi in its alternate screen and verify that the TUI renders and accepts input correctly.
-6. Switch to the other renderer and verify that it creates a fresh viewport/subscription and receives a clean snapshot.
-7. Reconnect and verify that the screen is restored from the new snapshot without mixing generations.
+6. Reconnect and verify that the screen is restored from the new snapshot without mixing generations.
 
 Development validation:
 
