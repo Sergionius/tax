@@ -95,38 +95,6 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(registrations.map(\.0), ["token-1", "token-1"])
     }
 
-    func testDefaultsToSwiftTermWhenNoRendererIsSaved() {
-        let preferences = PreferencesMock()
-        let store = SettingsStore(preferences: preferences, keychain: KeychainMock(values: ["tax.apiKey": "key"]))
-
-        XCTAssertEqual(store.terminalRenderer, .swiftTerm)
-        XCTAssertNil(preferences.values["tax.terminalRenderer"])
-    }
-
-    func testLoadsSavedXtermRenderer() {
-        let preferences = PreferencesMock(values: ["tax.terminalRenderer": "xterm"])
-        let store = SettingsStore(preferences: preferences, keychain: KeychainMock(values: ["tax.apiKey": "key"]))
-
-        XCTAssertEqual(store.terminalRenderer, .xterm)
-    }
-
-    func testNormalizesUnknownRendererToSwiftTerm() {
-        let preferences = PreferencesMock(values: ["tax.terminalRenderer": "ghostty"])
-        let store = SettingsStore(preferences: preferences, keychain: KeychainMock(values: ["tax.apiKey": "key"]))
-
-        XCTAssertEqual(store.terminalRenderer, .swiftTerm)
-    }
-
-    func testSavesRendererChoiceImmediately() {
-        let preferences = PreferencesMock()
-        let store = SettingsStore(preferences: preferences, keychain: KeychainMock(values: ["tax.apiKey": "key"]))
-
-        store.terminalRenderer = .xterm
-
-        XCTAssertEqual(store.terminalRenderer, .xterm)
-        XCTAssertEqual(preferences.values["tax.terminalRenderer"], "xterm")
-    }
-
     func testRejectsMalformedServerURL() {
         let store = SettingsStore(
             preferences: PreferencesMock(),

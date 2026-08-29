@@ -11,8 +11,7 @@ enum AppEnvironment {
         let preferences = MemoryPreferencesStore(values: [
             "tax.serverURL": argument(after: "--mock-server-url") ?? "https://tax.138-249-127-23.nip.io",
             "tax.hostID": argument(after: "--mock-host-id") ?? "mac-main",
-            "tax.remoteDeviceID": argument(after: "--mock-device-id") ?? "iphone-main",
-            "tax.terminalRenderer": "swiftterm"
+            "tax.remoteDeviceID": argument(after: "--mock-device-id") ?? "iphone-main"
         ])
         return SettingsStore(
             preferences: preferences,

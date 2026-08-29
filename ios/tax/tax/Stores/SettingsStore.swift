@@ -47,9 +47,6 @@ final class SettingsStore {
     var hostID: String
     var remoteDeviceID: String
     var e2eeKey: String
-    var terminalRenderer: TerminalRendererKind {
-        didSet { if terminalRenderer != oldValue { saveTerminalRenderer() } }
-    }
     var lastSaveError: String?
 
     @ObservationIgnored private let apiKeyKey = "tax.apiKey"
@@ -59,7 +56,6 @@ final class SettingsStore {
     @ObservationIgnored private let hostIDKey = "tax.hostID"
     @ObservationIgnored private let remoteDeviceIDKey = "tax.remoteDeviceID"
     @ObservationIgnored private let e2eeKeyKey = "tax.remoteE2EEKey"
-    @ObservationIgnored private let terminalRendererKey = "tax.terminalRenderer"
     @ObservationIgnored private let keychain: any KeychainStoring
     @ObservationIgnored private let preferences: any PreferencesStoring
     @ObservationIgnored private let serviceFactory: ServiceFactory
@@ -84,7 +80,6 @@ final class SettingsStore {
         pushMode = preferences.string(forKey: pushModeKey).flatMap(PushMode.init(rawValue:)) ?? .taxOnly
         hostID = preferences.string(forKey: hostIDKey) ?? "mac-main"
         remoteDeviceID = preferences.string(forKey: remoteDeviceIDKey) ?? "iphone-main"
-        terminalRenderer = preferences.string(forKey: terminalRendererKey).flatMap(TerminalRendererKind.init(rawValue:)) ?? .swiftTerm
         e2eeKey = ""
 
         do {
@@ -111,7 +106,6 @@ final class SettingsStore {
         pushMode = preferences.string(forKey: pushModeKey).flatMap(PushMode.init(rawValue:)) ?? .taxOnly
         hostID = preferences.string(forKey: hostIDKey) ?? "mac-main"
         remoteDeviceID = preferences.string(forKey: remoteDeviceIDKey) ?? "iphone-main"
-        terminalRenderer = preferences.string(forKey: terminalRendererKey).flatMap(TerminalRendererKind.init(rawValue:)) ?? .swiftTerm
         e2eeKey = ""
 
         do {
@@ -157,11 +151,6 @@ final class SettingsStore {
 
     func savePushMode() {
         preferences.set(pushMode.rawValue, forKey: pushModeKey)
-    }
-
-    private func saveTerminalRenderer() {
-        preferences.set(terminalRenderer.rawValue, forKey: terminalRendererKey)
-        logger.info("Saved terminal renderer: \(String(describing: self.terminalRenderer), privacy: .public)")
     }
 
     func saveDeviceToken(_ token: String) {
