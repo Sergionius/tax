@@ -8,9 +8,9 @@ enum PushMode: String, Codable, CaseIterable, Sendable, Identifiable {
     var id: Self { self }
     var title: String {
         switch self {
-        case .all: "Все"
-        case .taxOnly: "Только tax"
-        case .off: "Выключены"
+        case .all: "All"
+        case .taxOnly: "Tax only"
+        case .off: "Off"
         }
     }
 }

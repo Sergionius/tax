@@ -20,6 +20,7 @@ final class RemoteWorkspaceStore {
     var activeGeneration: UInt64?
     var activeTerminalViewport: TerminalRendererViewport?
 
+    @ObservationIgnored private let screenshotMode: Bool
     @ObservationIgnored private var client: RemoteClient?
     @ObservationIgnored private var eventTask: Swift.Task<Void, Never>?
     @ObservationIgnored private var configuration: RemoteConfiguration?
@@ -31,7 +32,20 @@ final class RemoteWorkspaceStore {
     @ObservationIgnored private var pendingTerminalOutput = Data()
     @ObservationIgnored private var terminalFlushTask: Swift.Task<Void, Never>?
 
+    init(screenshotMode: Bool = false) {
+        self.screenshotMode = screenshotMode
+        #if DEBUG
+        guard screenshotMode else { return }
+
+        connectionState = .online
+        workspaces = ScreenshotFixtures.workspaces
+        terminals[ScreenshotFixtures.primaryWorkspace.id] = ScreenshotFixtures.terminals
+        fileEntries["\(ScreenshotFixtures.primaryWorkspace.id):"] = ScreenshotFixtures.rootFiles
+        #endif
+    }
+
     func connect(settings: SettingsStore) async {
+        guard !screenshotMode else { return }
         disconnect()
         guard let configuration = settings.remoteConfiguration else {
             connectionState = .macOffline
@@ -62,7 +76,7 @@ final class RemoteWorkspaceStore {
     }
 
     func refresh() async {
-        guard let client else { return }
+        guard !screenshotMode, let client else { return }
         do {
             try await client.sendControl(type: "workspace.list")
             for workspace in workspaces { try await client.sendControl(type: "terminal.list", payload: ["workspace_id": .string(workspace.id)]) }
@@ -70,6 +84,7 @@ final class RemoteWorkspaceStore {
     }
 
     func loadTerminals(workspaceID: String) async {
+        guard !screenshotMode else { return }
         do { try await client?.sendControl(type: "terminal.list", payload: ["workspace_id": .string(workspaceID)]) }
         catch { errorMessage = error.localizedDescription }
     }
@@ -77,6 +92,14 @@ final class RemoteWorkspaceStore {
     func activateTerminal(terminalID: String, viewport: TerminalRendererViewport) async {
         let viewport = validViewport(viewport)
         activeTerminalViewport = viewport
+        #if DEBUG
+        if screenshotMode {
+            activeTerminalID = terminalID
+            terminalSnapshotReady = false
+            publishTerminal(data: ScreenshotFixtures.terminalSnapshot(rows: viewport.rows), generation: 1, resetsTerminal: true)
+            return
+        }
+        #endif
         pendingTerminalViewport = viewport
         guard terminalID == activeTerminalID, activeStreamID != nil, activeGeneration != nil else {
             await subscribe(terminalID: terminalID, viewport: viewport)
@@ -183,6 +206,7 @@ final class RemoteWorkspaceStore {
     }
 
     func loadFiles(workspaceID: String, path: String = "") async {
+        guard !screenshotMode else { return }
         do {
             try await client?.sendControl(
                 type: "file.list",
@@ -192,6 +216,15 @@ final class RemoteWorkspaceStore {
     }
 
     func searchFiles(workspaceID: String, query: String) async {
+        #if DEBUG
+        guard !screenshotMode else {
+            let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            fileSearchResults = normalized.isEmpty ? [] : ScreenshotFixtures.rootFiles.filter {
+                $0.name.localizedCaseInsensitiveContains(normalized)
+            }
+            return
+        }
+        #endif
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             fileSearchResults = []
             return
@@ -238,6 +271,7 @@ final class RemoteWorkspaceStore {
     }
 
     func suspend() {
+        guard !screenshotMode else { return }
         eventTask?.cancel()
         eventTask = nil
         if let client { Swift.Task { await client.close() } }
@@ -252,7 +286,7 @@ final class RemoteWorkspaceStore {
     }
 
     func resume(settings: SettingsStore) async {
-        guard client == nil else { return }
+        guard !screenshotMode, client == nil else { return }
         if configuration == nil { configuration = settings.remoteConfiguration }
         guard let configuration else {
             connectionState = .macOffline
@@ -262,6 +296,7 @@ final class RemoteWorkspaceStore {
     }
 
     func disconnect() {
+        guard !screenshotMode else { return }
         eventTask?.cancel()
         eventTask = nil
         if let client { Swift.Task { await client.close() } }

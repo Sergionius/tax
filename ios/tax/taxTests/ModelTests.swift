@@ -9,6 +9,12 @@ final class ModelTests: XCTestCase {
         }
     }
 
+    func testPushModeTitlesAreEnglish() {
+        XCTAssertEqual(PushMode.all.title, "All")
+        XCTAssertEqual(PushMode.taxOnly.title, "Tax only")
+        XCTAssertEqual(PushMode.off.title, "Off")
+    }
+
     func testDeviceRegistrationUsesServerKeys() throws {
         let payload = DeviceTokenPayload(deviceToken: "token", preferences: DevicePreferences(pushMode: .taxOnly))
         let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload)) as! [String: Any]
