@@ -242,4 +242,88 @@ extension View {
             }
         }
     }
+
+    /// Тёмный фон экрана `bg` на всю площадь, включая safe areas.
+    /// Применяется к содержимому конкретного экрана вместе с `workspaceScreenTheme()`.
+    func workspaceScreenBackground() -> some View {
+        background(WorkspaceTheme.bg.ignoresSafeArea())
+    }
+
+    /// Строка `List` под карточку: без разделителя и системного фона строки,
+    /// с горизонтальными отступами 14 pt — карточка рисует собственный фон.
+    func workspaceCardListRow() -> some View {
+        listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
+    }
+}
+
+// MARK: - Секции и состояния экрана
+
+/// Тематический заголовок секции списка: приглушённый текст Space Grotesk
+/// на непрозрачном фоне `bg` (чтобы контент не просвечивал при прокрутке).
+struct WorkspaceSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.workspaceUI(.footnote, weight: .medium))
+            .foregroundStyle(WorkspaceTheme.textLo)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 16)
+            .padding(.bottom, 4)
+            .padding(.horizontal, 14)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(WorkspaceTheme.bg)
+    }
+}
+
+/// Тематическое пустое состояние: приглушённая иконка, заголовок и опциональное описание.
+struct WorkspaceEmptyState: View {
+    let title: String
+    let icon: String
+    var description: String? = nil
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.workspaceUI(.title))
+                .foregroundStyle(WorkspaceTheme.textDim)
+            Text(title)
+                .font(.workspaceUI(.headline, weight: .medium))
+                .foregroundStyle(WorkspaceTheme.textLo)
+                .multilineTextAlignment(.center)
+            if let description {
+                Text(description)
+                    .font(.workspaceUI(.subheadline))
+                    .foregroundStyle(WorkspaceTheme.textDim)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Тематическое состояние загрузки: спиннер в акцентном цвете и подпись.
+struct WorkspaceLoadingState: View {
+    let text: String
+    /// Центрировать на весь экран (для корневых состояний ожидания).
+    var fillsScreen = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(WorkspaceTheme.accent)
+            Text(text)
+                .font(.workspaceUI(.subheadline))
+                .foregroundStyle(WorkspaceTheme.textLo)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: fillsScreen ? .infinity : nil)
+        .padding(.vertical, fillsScreen ? 0 : 12)
+        .accessibilityElement(children: .combine)
+    }
 }

@@ -9,27 +9,25 @@ struct WorkspaceListView: View {
         @Bindable var appState = appState
         NavigationStack(path: $appState.navigationPath) {
             Group {
-                if store.connectionState == .connecting && store.workspaces.isEmpty { ProgressView("Connecting to Mac…") }
-                else if settings.remoteConfiguration == nil {
-                    ContentUnavailableView("Remote workspace not configured", systemImage: "desktopcomputer", description: Text("Add host, device, and encryption settings."))
+                if store.connectionState == .connecting && store.workspaces.isEmpty {
+                    WorkspaceLoadingState(text: "Connecting to Mac…", fillsScreen: true)
+                } else if settings.remoteConfiguration == nil {
+                    WorkspaceEmptyState(
+                        title: "Remote workspace not configured",
+                        icon: "desktopcomputer",
+                        description: "Add host, device, and encryption settings."
+                    )
                 } else if store.workspaces.isEmpty {
-                    ContentUnavailableView("No open Orca workspaces", systemImage: "rectangle.stack")
+                    WorkspaceEmptyState(title: "No open Orca workspaces", icon: "rectangle.stack")
                 } else {
-                    List(store.workspaces) { workspace in
-                        NavigationLink(value: RemoteNavigationRoute.workspace(workspace)) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(workspace.displayName).font(.headline)
-                                Text([workspace.projectName, workspace.branch.replacingOccurrences(of: "refs/heads/", with: "")].filter { !$0.isEmpty }.joined(separator: " · "))
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                                Label("\(workspace.terminalCount) terminals · \(workspace.agentState)", systemImage: "terminal")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .refreshable { await store.refresh() }
+                    workspaceList
                 }
             }
+            .workspaceScreenTheme()
+            .workspaceScreenBackground()
             .navigationTitle("Orca")
+            .navigationBarTitleDisplayMode(.inline)
+            .workspacePrincipalTitle("Orca")
             .navigationDestination(for: RemoteNavigationRoute.self) { route in
                 switch route {
                 case let .workspace(workspace): WorkspaceView(workspace: workspace)
@@ -38,9 +36,13 @@ struct WorkspaceListView: View {
             }
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    ConnectionStatus(state: store.connectionState)
-                    NavigationLink(destination: SettingsView()) { Image(systemName: "gear") }
-                        .accessibilityIdentifier("settings.open")
+                    WorkspaceConnectionIndicator(state: store.connectionState)
+                    NavigationLink(destination: SettingsView()) {
+                        Image(systemName: "gear")
+                            .font(.workspaceUI(.body, weight: .medium))
+                            .foregroundStyle(WorkspaceTheme.textLo)
+                    }
+                    .accessibilityIdentifier("settings.open")
                 }
             }
             .task {
@@ -55,6 +57,19 @@ struct WorkspaceListView: View {
                 Button("OK") { store.errorMessage = nil }
             } message: { Text(store.errorMessage ?? "") }
         }
+    }
+
+    private var workspaceList: some View {
+        List(store.workspaces) { workspace in
+            NavigationLink(value: RemoteNavigationRoute.workspace(workspace)) {
+                WorkspaceListCard(workspace: workspace)
+            }
+            .buttonStyle(WorkspaceCardButtonStyle())
+            .workspaceEmphasis(isActive: workspace.isVisuallyActive)
+            .workspaceCardListRow()
+        }
+        .listStyle(.plain)
+        .refreshable { await store.refresh() }
     }
 
     private func routePendingDestination() async {
@@ -94,6 +109,129 @@ struct WorkspaceListView: View {
         guard appState.pendingDestination == destination else { return }
         store.errorMessage = "The linked terminal is no longer available."
         appState.finishRouting()
+    }
+}
+
+/// Карточка workspace в списке: название, проект, ветка, путь, число терминалов
+/// и существующий статус агента. Активность различается только оформлением.
+private struct WorkspaceListCard: View {
+    let workspace: RemoteWorkspace
+
+    private var branchName: String {
+        workspace.branch.replacingOccurrences(of: "refs/heads/", with: "")
+    }
+
+    private var symbolColor: Color {
+        workspace.isVisuallyActive ? WorkspaceTheme.accent : WorkspaceTheme.accentDim
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            WorkspaceActiveBar(isActive: workspace.isVisuallyActive)
+            VStack(alignment: .leading, spacing: 7) {
+                Text(workspace.displayName)
+                    .font(.workspaceUI(.headline, weight: .semibold))
+                    .foregroundStyle(WorkspaceTheme.textHi)
+                    .lineLimit(1)
+                if !workspace.projectName.isEmpty || !branchName.isEmpty {
+                    HStack(spacing: 10) {
+                        if !workspace.projectName.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "book.closed")
+                                    .font(.workspaceUI(.caption2, weight: .medium))
+                                    .foregroundStyle(symbolColor)
+                                Text(workspace.projectName)
+                                    .font(.workspaceUI(.caption, weight: .medium))
+                                    .foregroundStyle(WorkspaceTheme.textLo)
+                                    .lineLimit(1)
+                            }
+                        }
+                        if !branchName.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .font(.workspaceUI(.caption2, weight: .medium))
+                                    .foregroundStyle(symbolColor)
+                                Text(branchName)
+                                    .font(.workspaceMono(.caption))
+                                    .foregroundStyle(WorkspaceTheme.textLo)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                }
+                Text(workspace.path)
+                    .font(.workspaceMono(.caption2))
+                    .foregroundStyle(WorkspaceTheme.textDim)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                HStack(spacing: 8) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "terminal")
+                            .font(.workspaceUI(.caption2, weight: .medium))
+                            .foregroundStyle(symbolColor)
+                        Text("\(workspace.terminalCount) terminals")
+                            .font(.workspaceMono(.caption2, weight: .medium))
+                            .foregroundStyle(WorkspaceTheme.textLo)
+                    }
+                    WorkspaceBadge(text: workspace.agentState, icon: "brain", isActive: workspace.isVisuallyActive)
+                }
+            }
+        }
+    }
+}
+
+/// Тематический индикатор соединения для списка workspace.
+/// Терминал продолжает использовать `ConnectionStatus` — его вид не меняется.
+struct WorkspaceConnectionIndicator: View {
+    let state: RemoteConnectionState
+
+    private var title: String {
+        switch state {
+        case .connecting: "Connecting to Mac"
+        case .online: "Mac online"
+        case .macOffline: "Mac offline"
+        case .orcaOffline: "Orca offline"
+        case .incompatible: "Orca incompatible"
+        case .reconnecting: "Reconnecting to Mac"
+        }
+    }
+
+    private var color: Color {
+        switch state {
+        case .online: .green
+        case .connecting, .reconnecting: .orange
+        case .macOffline, .orcaOffline, .incompatible: .red
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if state == .connecting || state == .reconnecting {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(color)
+            } else {
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+            }
+            Text(title)
+                .font(.workspaceUI(.caption, weight: .medium))
+                .foregroundStyle(WorkspaceTheme.textLo)
+                .lineLimit(1)
+        }
+        .fixedSize()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Mac connection: \(title)")
+    }
+}
+
+private extension RemoteWorkspace {
+    /// Активность для оформления: существующий статус агента, отличный от idle.
+    /// Источник данных и подписи статусов не меняются — только визуальное различение.
+    var isVisuallyActive: Bool {
+        let normalized = agentState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !normalized.isEmpty && normalized != "idle"
     }
 }
 
