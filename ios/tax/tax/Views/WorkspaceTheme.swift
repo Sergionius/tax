@@ -327,3 +327,17 @@ struct WorkspaceLoadingState: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+// MARK: - Редактор файлов
+
+extension TextEditor {
+    /// Оформление многострочного редактора: JetBrains Mono, текст `text-hi`,
+    /// каретка и выделение в акцентном цвете. Стандартный светлый фон `TextEditor`
+    /// скрыт — под редактором остаётся фон экрана `bg`.
+    func workspaceEditorChrome() -> some View {
+        font(.workspaceMono(.body))
+            .foregroundStyle(WorkspaceTheme.textHi)
+            .tint(WorkspaceTheme.accent)
+            .scrollContentBackground(.hidden)
+    }
+}
