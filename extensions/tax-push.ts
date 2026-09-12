@@ -8,7 +8,20 @@ const PUSH_ENDPOINT = `${BACKEND_URL}/push`;
 const LOCAL_AGENT_URL = process.env.TAX_AGENT_URL?.trim() || "http://127.0.0.1:17373";
 const REQUEST_TIMEOUT_MS = 10_000;
 const LOCAL_TIMEOUT_MS = 1_500;
+const CONTEXT_MAX_LENGTH = 100_000;
+const LOGS_MAX_LENGTH = 500_000;
+const TRUNCATION_MARKER = "\n… [truncated] …\n";
 const EXTENSION_NAME = "tax-push";
+
+export function truncatePayloadText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  if (maxLength <= TRUNCATION_MARKER.length) return value.slice(0, maxLength);
+
+  const contentLength = maxLength - TRUNCATION_MARKER.length;
+  const headLength = Math.ceil(contentLength / 2);
+  const tailLength = Math.floor(contentLength / 2);
+  return `${value.slice(0, headLength)}${TRUNCATION_MARKER}${value.slice(-tailLength)}`;
+}
 
 type AnyMessage = {
   role?: string;
@@ -362,8 +375,8 @@ export default function (pi: ExtensionAPI) {
         taskID = await postPush({
           title: result.title,
           body: result.body,
-          context,
-          logs: result.logs,
+          context: truncatePayloadText(context, CONTEXT_MAX_LENGTH),
+          logs: truncatePayloadText(result.logs, LOGS_MAX_LENGTH),
           ...metadata,
         }, apiKey);
         lastSentKey = result.key;
