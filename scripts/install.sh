@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 command -v pipx >/dev/null || { echo "❌ pipx is required" >&2; exit 1; }
+"$ROOT_DIR/scripts/uninstall-legacy-reply-agent.sh"
 pipx install --force -e .
 
 echo "✅ tax installed via pipx"
@@ -20,5 +21,3 @@ if command -v pi >/dev/null; then
 else
   echo "⚠️ pi not found; extension installation skipped" >&2
 fi
-
-"$ROOT_DIR/scripts/install-launch-agent.sh"

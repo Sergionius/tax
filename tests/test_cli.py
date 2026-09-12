@@ -1,8 +1,10 @@
 import argparse
 import io
 import json
+import os
 import stat
 import subprocess
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -476,3 +478,127 @@ def test_run_command_kills_process_when_terminate_times_out(monkeypatch, capsys)
     assert proc.terminated
     assert proc.killed
     assert proc.waits == [5, None]
+
+
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+UNINSTALLER = SCRIPTS_DIR / "uninstall-legacy-reply-agent.sh"
+
+
+def _write_fake_utilities(bin_dir: Path) -> None:
+    utilities = {
+        "uname": 'printf \'uname %s\\n\' "$*" >> "$TAX_TEST_CALLS"\necho "${TAX_TEST_UNAME_S:-Darwin}"\n',
+        "launchctl": (
+            'printf \'launchctl %s\\n\' "$*" >> "$TAX_TEST_CALLS"\nexit "${TAX_TEST_LAUNCHCTL_EXIT:-0}"\n'
+        ),
+        "pipx": 'printf \'pipx %s\\n\' "$*" >> "$TAX_TEST_CALLS"\n',
+        "pi": 'printf \'pi %s\\n\' "$*" >> "$TAX_TEST_CALLS"\n',
+    }
+    for name, body in utilities.items():
+        path = bin_dir / name
+        path.write_text("#!/bin/sh\n" + body)
+        path.chmod(0o755)
+
+
+def _script_env(bin_dir: Path, home: Path, calls_file: Path) -> dict:
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+    path_value = str(bin_dir)
+    if env.get("PATH"):
+        path_value += os.pathsep + env["PATH"]
+    env["PATH"] = path_value
+    env["TAX_TEST_CALLS"] = str(calls_file)
+    return env
+
+
+def test_uninstall_script_is_executable_and_noop_outside_darwin(tmp_path):
+    home = tmp_path / "home"
+    launch_agents = home / "Library" / "LaunchAgents"
+    launch_agents.mkdir(parents=True)
+    plist = launch_agents / "tax.agent.plist"
+    plist.write_text("<plist/>")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_utilities(bin_dir)
+    calls_file = tmp_path / "calls.log"
+    env = _script_env(bin_dir, home, calls_file)
+    env["TAX_TEST_UNAME_S"] = "Linux"
+
+    assert os.access(UNINSTALLER, os.X_OK)
+    result = subprocess.run(["bash", str(UNINSTALLER)], env=env, capture_output=True, text=True)
+
+    assert result.returncode == 0
+    assert plist.exists()
+    assert "launchctl" not in calls_file.read_text()
+
+
+def test_uninstall_script_succeeds_twice_and_removes_only_legacy_plist(tmp_path):
+    home = tmp_path / "home"
+    launch_agents = home / "Library" / "LaunchAgents"
+    launch_agents.mkdir(parents=True)
+    (launch_agents / "tax.agent.plist").write_text("<plist/>")
+    neighbor_plist = launch_agents / "com.example.other.plist"
+    neighbor_plist.write_text("<plist/>")
+    remote_plist = launch_agents / "tax.remote-host.plist"
+    remote_plist.write_text("<plist/>")
+    state_log = home / ".local" / "state" / "tax" / "logs" / "agent.log"
+    state_log.parent.mkdir(parents=True)
+    state_log.write_text("log")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_utilities(bin_dir)
+    calls_file = tmp_path / "calls.log"
+    env = _script_env(bin_dir, home, calls_file)
+
+    for _ in range(2):
+        result = subprocess.run(["bash", str(UNINSTALLER)], env=env, capture_output=True, text=True)
+        assert result.returncode == 0
+
+    assert not (launch_agents / "tax.agent.plist").exists()
+    assert neighbor_plist.exists()
+    assert remote_plist.exists()
+    assert state_log.exists()
+    assert calls_file.read_text().splitlines().count(f"launchctl bootout gui/{os.getuid()}/tax.agent") == 2
+
+
+def test_uninstall_script_tolerates_bootout_failure(tmp_path):
+    home = tmp_path / "home"
+    launch_agents = home / "Library" / "LaunchAgents"
+    launch_agents.mkdir(parents=True)
+    (launch_agents / "tax.agent.plist").write_text("<plist/>")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_utilities(bin_dir)
+    calls_file = tmp_path / "calls.log"
+    env = _script_env(bin_dir, home, calls_file)
+    env["TAX_TEST_LAUNCHCTL_EXIT"] = "1"
+
+    result = subprocess.run(["bash", str(UNINSTALLER)], env=env, capture_output=True, text=True)
+
+    assert result.returncode == 0
+    assert not (launch_agents / "tax.agent.plist").exists()
+    assert f"launchctl bootout gui/{os.getuid()}/tax.agent" in calls_file.read_text()
+
+
+def test_install_script_runs_uninstall_before_pipx_and_pi(tmp_path):
+    home = tmp_path / "home"
+    extension = home / ".pi" / "agent" / "extensions" / "tax-push.ts"
+    extension.parent.mkdir(parents=True)
+    extension.write_text("// legacy standalone copy\n")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_utilities(bin_dir)
+    calls_file = tmp_path / "calls.log"
+    env = _script_env(bin_dir, home, calls_file)
+
+    result = subprocess.run(["bash", str(SCRIPTS_DIR / "install.sh")], env=env, capture_output=True, text=True)
+
+    assert result.returncode == 0
+    assert calls_file.read_text().splitlines() == [
+        "uname -s",
+        f"launchctl bootout gui/{os.getuid()}/tax.agent",
+        "pipx install --force -e .",
+        f"pi install {SCRIPTS_DIR.parent}",
+    ]
+    assert not extension.exists()
+    assert Path(f"{extension}.legacy.bak").exists()
+    assert not (SCRIPTS_DIR / "install-launch-agent.sh").exists()

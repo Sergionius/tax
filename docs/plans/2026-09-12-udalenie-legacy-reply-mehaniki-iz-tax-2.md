@@ -95,12 +95,12 @@ Backend API и SQLite compatibility, CLI, Pi extension, безопасный uni
 - Modify: `tests/test_cli.py`
 - Delete: `scripts/install-launch-agent.sh`
 
-- [ ] Создать executable Bash-скрипт с `set -euo pipefail` и успешным no-op вне Darwin, по precedent прежнего installer.
-- [ ] На Darwin выполнить только `launchctl bootout "gui/$UID/tax.agent" 2>/dev/null || true` и `rm -f "$HOME/Library/LaunchAgents/tax.agent.plist"`.
-- [ ] Не трогать remote-host, config, Keychain, pairing file, state directory и logs; не добавлять sudo, process-kill или recursive deletion.
-- [ ] В `scripts/install.sh` после проверки наличия pipx, но до `pipx install --force -e .`, вызвать uninstaller. Сохранить последующую установку CLI, отключение старой standalone Pi extension copy и `pi install`; удалить установку reply agent.
-- [ ] Удалить прежний launch-agent installer.
-- [ ] В существующем `tests/test_cli.py` добавить subprocess tests с временным HOME и fake `uname`/`launchctl`/`pipx`/`pi`: два запуска успешны, ошибка bootout допускается, удаляется только целевой plist, соседние файлы остаются, порядок installer — uninstall → pipx → Pi. Реальные пользовательские утилиты не запускать.
+- [x] Создать executable Bash-скрипт с `set -euo pipefail` и успешным no-op вне Darwin, по precedent прежнего installer.
+- [x] На Darwin выполнить только `launchctl bootout "gui/$UID/tax.agent" 2>/dev/null || true` и `rm -f "$HOME/Library/LaunchAgents/tax.agent.plist"`.
+- [x] Не трогать remote-host, config, Keychain, pairing file, state directory и logs; не добавлять sudo, process-kill или recursive deletion.
+- [x] В `scripts/install.sh` после проверки наличия pipx, но до `pipx install --force -e .`, вызвать uninstaller. Сохранить последующую установку CLI, отключение старой standalone Pi extension copy и `pi install`; удалить установку reply agent.
+- [x] Удалить прежний launch-agent installer.
+- [x] В существующем `tests/test_cli.py` добавить subprocess tests с временным HOME и fake `uname`/`launchctl`/`pipx`/`pi`: два запуска успешны, ошибка bootout допускается, удаляется только целевой plist, соседние файлы остаются, порядок installer — uninstall → pipx → Pi. Реальные пользовательские утилиты не запускать.
 
 ### Task 5: Обновить metadata и package validation
 
@@ -216,4 +216,8 @@ git grep -n -I -E \
 - Decision: `TAX_SERVER=http://backend.test` фиксируется до dynamic import модуля и URL проверяется как `http://backend.test/push`; Alternatives: проверять только суффикс `/push`; Reason: `BACKEND_URL` вычисляется при загрузке модуля, фиксация даёт детерминированный endpoint независимо от окружения; Side effects: none.
 - Decision: инфраструктура изоляции (mocked `fetch`, capture console, env hooks, проверка отсутствия файлов во временном HOME/state directory) добавлена вместе с flow-тестами пункта 5, пункт 6 добавил только `analyzeTurn`-кейсы; Alternatives: разносить изоляцию и flow-тесты по пунктам; Reason: flow-тесты невозможны без изоляции fetch/env, а требования пунктов пересекаются в одном файле; Side effects: none.
 - Decision: разделить сценарий registration fallback на два теста (fallback на последнюю регистрацию и device_token_missing на чистой БД); Alternatives: один тест с двумя push; Reason: существующее поведение `/push` подставляет последнюю зарегистрированную даже без device_token, поэтому случай missing token требует БД без регистраций; Side effects: дополнительный тест без изменения продакшн-кода.
-- Decision: в migration test сравнивать только legacy-колонки строки плюс NULL в новых колонках; Alternatives: сравнивать строку целиком; Reason: additive migration физически добавляет новые NULL-колонки к старой строке; Side effects: none.
+- Decision: в тестах сравнивать только legacy-колонки строки плюс NULL в новых колонках; Alternatives: сравнивать строку целиком; Reason: additive migration физически добавляет новые NULL-колонки к старой строке; Side effects: none.
+- Decision: uninstaller печатает краткие статусные сообщения (`skipped`/`removed`) в стиле прежнего installer; Alternatives: полностью беззвучный скрипт; Reason: единообразие вывода установочных скриптов при сохранении минимальности изменений; Side effects: none.
+- Decision: fake-утилиты (`uname`/`launchctl`/`pipx`/`pi`) пишут вызовы в файл из `TAX_TEST_CALLS` и управляются через `TAX_TEST_UNAME_S`/`TAX_TEST_LAUNCHCTL_EXIT`, а временный bin-dir ставится первым в `PATH`; Alternatives: monkeypatch встроенных команд; Reason: тесты обязаны идти через subprocess и гарантированно не запускать реальные пользовательские утилиты; Side effects: none.
+- Decision: в тесте порядка installer проверяется точная последовательность четырёх вызовов (`uname` → `launchctl bootout` → `pipx install` → `pi install`); Alternatives: только относительный порядок uninstall/pipx/pi; Reason: точный список одновременно доказывает, что удалённый launch-agent installer больше не вызывается; Side effects: новые шаги в `install.sh` потребуют обновления списка.
+- Decision: для Task 4 выполнены только `bash -n scripts/install.sh scripts/uninstall-legacy-reply-agent.sh scripts/preflight.sh`, `.venv/bin/ruff check .` и полный `.venv/bin/pytest -q` (79 passed); Alternatives: полный npm/build/preflight; Reason: Task 4 меняет только Bash-скрипты и Python-тесты, package/preflight проверки остаются гейтами Task 5/7 по precedent Task 2/3; Side effects: none.
