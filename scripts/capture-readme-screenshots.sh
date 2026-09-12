@@ -23,7 +23,7 @@ fi
 if [[ -z "$DEVICE_ID" ]]; then
     RUNTIME_ID="$(xcrun simctl list runtimes -j | python3 -c '
 import json, sys
-runtimes = [item for item in json.load(sys.stdin)["runtimes"] if item.get("isAvailable") and item.get("platform") == "iOS"]
+runtimes = [item for item in json.load(sys.stdin)["runtimes"] if item.get("isAvailable") and "SimRuntime.iOS" in item.get("identifier", "")]
 if not runtimes:
     raise SystemExit("No available iOS Simulator runtime")
 print(runtimes[-1]["identifier"])
