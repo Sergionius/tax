@@ -80,12 +80,12 @@ Backend API и SQLite compatibility, CLI, Pi extension, безопасный uni
 - Modify: `extensions/tax-push.ts`
 - Modify: `tests/extension/tax-push.test.ts`
 
-- [ ] Удалить filesystem/path/os imports, `LOCAL_AGENT_URL`, `LOCAL_TIMEOUT_MS`, `TaskHandoff`, local handoff, fallback path и JSONL append.
-- [ ] После успешного `postPush` и обновления dedupe state вызывать `logQuietly("Push sent")`; сохранить проверку непустого строкового `task_id`, timeout, ошибочные ответы и очистку `inFlightKey`.
-- [ ] Заменить предупреждение `skip replyable notification` на `skip push notification`, сохранив обязательность terminal handle для Pi.
-- [ ] Не менять `agent_settled`, turn analysis, outcome classification, truncation, session context, routing defaults, deduplication и обработку ошибок.
-- [ ] Расширить существующий Node test file fake ExtensionAPI/event handlers и mocked `fetch`: ровно один POST `/push`, правильные metadata, последовательные и concurrent duplicates, invalid JSON/missing task ID/HTTP failure, повторный event после неудачи и debug-only `Push sent`.
-- [ ] Сохранить truncation tests и добавить representative success/failure/stopped analysis cases. Изолировать environment, console и fetch между тестами; проверять отсутствие файловых изменений в временном HOME/state directory.
+- [x] Удалить filesystem/path/os imports, `LOCAL_AGENT_URL`, `LOCAL_TIMEOUT_MS`, `TaskHandoff`, local handoff, fallback path и JSONL append.
+- [x] После успешного `postPush` и обновления dedupe state вызывать `logQuietly("Push sent")`; сохранить проверку непустого строкового `task_id`, timeout, ошибочные ответы и очистку `inFlightKey`.
+- [x] Заменить предупреждение `skip replyable notification` на `skip push notification`, сохранив обязательность terminal handle для Pi.
+- [x] Не менять `agent_settled`, turn analysis, outcome classification, truncation, session context, routing defaults, deduplication и обработку ошибок.
+- [x] Расширить существующий Node test file fake ExtensionAPI/event handlers и mocked `fetch`: ровно один POST `/push`, правильные metadata, последовательные и concurrent duplicates, invalid JSON/missing task ID/HTTP failure, повторный event после неудачи и debug-only `Push sent`.
+- [x] Сохранить truncation tests и добавить representative success/failure/stopped analysis cases. Изолировать environment, console и fetch между тестами; проверять отсутствие файловых изменений в временном HOME/state directory.
 
 ### Task 4: Добавить безопасное снятие legacy LaunchAgent
 
@@ -210,5 +210,10 @@ git grep -n -I -E \
 - Decision: после terminate/kill в ветке KeyboardInterrupt добавлен финальный безусловный `proc.wait()`; Alternatives: читать `returncode` без ожидания; Reason: требование читать exit code только после завершения процесса; Side effects: none.
 - Decision: обновить help subcommand `run` на «Run a command and send one completion push»; Alternatives: сохранить прежний текст про iPhone; Reason: точное описание fire-and-forget wrapper, обязательный текст в плане отсутствует; Side effects: none.
 - Decision: для Task 2 выполнены только `.venv/bin/ruff check .`, полный `.venv/bin/pytest -q` (75 passed) и `npm test` (4 passed); Alternatives: полный preflight/build; Reason: Task 2 меняет только Python CLI и его тесты, package build и preflight остаются гейтами Task 5/7; Side effects: none.
+- Decision: для Task 3 выполнен только `npm test` (17 passed); Alternatives: полный ruff/pytest/build/preflight; Reason: Task 3 меняет только Pi extension и его Node-тесты, остальные проверки остаются гейтами Task 5/7 по precedent Task 2; Side effects: none.
+- Decision: локальная переменная `taskID` удалена вместе с handoff; Alternatives: сохранить присваивание без использования; Reason: проверка непустого строкового `task_id` полностью остаётся в `postPush`, переменная стала ненужной; Side effects: none.
+- Decision: тесты в `beforeEach` очищают изолированные `TAX_*`/`ORCA_*`/`PI_*`-переменные, а не только восстанавливают их после; Alternatives: только snapshot/restore; Reason: окружение запуска (Orca) экспортирует `TAX_API_KEY`, `TAX_SERVER`, `ORCA_TERMINAL_HANDLE`, `ORCA_WORKTREE_ID`, `ORCA_TAB_ID`, `ORCA_PANE_KEY`, `ORCA_WORKSPACE_ID`, и без очистки первый прогон упал на утечке реального `ORCA_WORKTREE_ID` в metadata-тест; Side effects: тесты детерминированы вне зависимости от окружения.
+- Decision: `TAX_SERVER=http://backend.test` фиксируется до dynamic import модуля и URL проверяется как `http://backend.test/push`; Alternatives: проверять только суффикс `/push`; Reason: `BACKEND_URL` вычисляется при загрузке модуля, фиксация даёт детерминированный endpoint независимо от окружения; Side effects: none.
+- Decision: инфраструктура изоляции (mocked `fetch`, capture console, env hooks, проверка отсутствия файлов во временном HOME/state directory) добавлена вместе с flow-тестами пункта 5, пункт 6 добавил только `analyzeTurn`-кейсы; Alternatives: разносить изоляцию и flow-тесты по пунктам; Reason: flow-тесты невозможны без изоляции fetch/env, а требования пунктов пересекаются в одном файле; Side effects: none.
 - Decision: разделить сценарий registration fallback на два теста (fallback на последнюю регистрацию и device_token_missing на чистой БД); Alternatives: один тест с двумя push; Reason: существующее поведение `/push` подставляет последнюю зарегистрированную даже без device_token, поэтому случай missing token требует БД без регистраций; Side effects: дополнительный тест без изменения продакшн-кода.
 - Decision: в migration test сравнивать только legacy-колонки строки плюс NULL в новых колонках; Alternatives: сравнивать строку целиком; Reason: additive migration физически добавляет новые NULL-колонки к старой строке; Side effects: none.

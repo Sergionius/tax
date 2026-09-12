@@ -1,13 +1,8 @@
-import { appendFile, mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const BACKEND_URL = (process.env.TAX_SERVER?.trim() || "https://tax.138-249-127-23.nip.io").replace(/\/$/, "");
 const PUSH_ENDPOINT = `${BACKEND_URL}/push`;
-const LOCAL_AGENT_URL = process.env.TAX_AGENT_URL?.trim() || "http://127.0.0.1:17373";
 const REQUEST_TIMEOUT_MS = 10_000;
-const LOCAL_TIMEOUT_MS = 1_500;
 const CONTEXT_MAX_LENGTH = 100_000;
 const LOGS_MAX_LENGTH = 500_000;
 const TRUNCATION_MARKER = "\n… [truncated] …\n";
@@ -47,17 +42,6 @@ type SessionMessageEntry = {
   type?: string;
   id?: string;
   message?: AnyMessage;
-};
-
-type TaskHandoff = {
-  task_id: string;
-  orca_terminal_handle: string;
-  orca_worktree_id: string;
-  orca_tab_id: string;
-  orca_pane_key: string;
-  source: string;
-  agent: string;
-  app: string;
 };
 
 function partToText(part: unknown): string {
@@ -274,26 +258,6 @@ async function postPush(payload: Record<string, string>, apiKey: string): Promis
   return result.task_id;
 }
 
-async function handoffToLocalAgent(task: TaskHandoff): Promise<void> {
-  const response = await fetchWithTimeout(`${LOCAL_AGENT_URL}/task`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(task),
-  }, LOCAL_TIMEOUT_MS);
-  if (!response.ok) throw new Error(`local agent returned HTTP ${response.status}`);
-}
-
-function fallbackQueuePath(): string {
-  const stateHome = process.env.XDG_STATE_HOME?.trim() || join(homedir(), ".local", "state");
-  return join(stateHome, "tax", "tasks.jsonl");
-}
-
-async function appendFallback(task: TaskHandoff): Promise<void> {
-  const path = fallbackQueuePath();
-  await mkdir(dirname(path), { recursive: true });
-  await appendFile(path, `${JSON.stringify(task)}\n`, { encoding: "utf8", mode: 0o600 });
-}
-
 function log(
   ctx: { hasUI?: boolean; ui?: { notify?: (message: string, level?: "info" | "warning" | "error") => void } },
   message: string,
@@ -341,7 +305,7 @@ export default function (pi: ExtensionAPI) {
 
       const orcaTerminalHandle = process.env.ORCA_TERMINAL_HANDLE?.trim() || "";
       if (!orcaTerminalHandle) {
-        log(ctx, "ORCA_TERMINAL_HANDLE is not set; skip replyable notification", "warning");
+        log(ctx, "ORCA_TERMINAL_HANDLE is not set; skip push notification", "warning");
         return;
       }
 
@@ -370,9 +334,8 @@ export default function (pi: ExtensionAPI) {
         `Directory: ${ctx.cwd}`,
         sessionFile ? `Session: ${sessionFile}` : "",
       ].filter(Boolean).join("\n");
-      let taskID: string;
       try {
-        taskID = await postPush({
+        await postPush({
           title: result.title,
           body: result.body,
           context: truncatePayloadText(context, CONTEXT_MAX_LENGTH),
@@ -383,19 +346,7 @@ export default function (pi: ExtensionAPI) {
       } finally {
         if (inFlightKey === result.key) inFlightKey = undefined;
       }
-
-      const handoff: TaskHandoff = {
-        task_id: taskID,
-        ...metadata,
-      };
-      try {
-        await handoffToLocalAgent(handoff);
-        logQuietly(`Push sent; watching task ${taskID.slice(0, 8)}`);
-      } catch (localError) {
-        await appendFallback(handoff);
-        const reason = localError instanceof Error ? localError.message : String(localError);
-        logQuietly(`Push sent; local agent unavailable (${reason}), task queued`, "warning");
-      }
+      logQuietly("Push sent");
     } catch (error) {
       inFlightKey = undefined;
       const message = error instanceof Error ? error.message : String(error);
