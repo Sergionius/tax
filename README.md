@@ -4,6 +4,21 @@
 
 `tax` позволяет с iPhone подключаться к открытым workspace и терминалам Orca на Mac через зашифрованный relay. Приложение показывает ANSI/TUI-вывод, отправляет ввод в выбранный PTY, создаёт и закрывает терминалы, запускает `pi`, а также позволяет безопасно просматривать и редактировать файлы workspace.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/workspaces.png" width="280" alt="Remote workspace list"><br><sub>Remote workspaces</sub></td>
+    <td align="center"><img src="docs/images/terminal.png" width="280" alt="Remote Pi terminal"><br><sub>Pi terminal</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/files.png" width="280" alt="Workspace file browser"><br><sub>Workspace files</sub></td>
+    <td align="center"><img src="docs/images/settings.png" width="280" alt="Self-hosted connection settings"><br><sub>Self-hosted settings</sub></td>
+  </tr>
+</table>
+
+All screenshots use deterministic demo data. No live server, credentials, device tokens, workspace paths, or terminal sessions are included.
+
 ## Архитектура
 
 - **Orca Runtime на Mac** — источник workspace и терминалов;

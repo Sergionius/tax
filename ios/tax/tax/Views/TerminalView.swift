@@ -4,6 +4,7 @@ struct TerminalView: View {
     let terminal: RemoteTerminal
     @Environment(RemoteWorkspaceStore.self) private var store
     @State private var pipeline = TerminalRenderPipeline()
+    @State private var didRequestScreenshotKeyboard = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,6 +51,12 @@ struct TerminalView: View {
             }
             pipeline.onSnapshotApplied = {
                 store.setSnapshotReady()
+                guard AppEnvironment.isScreenshotMode, !didRequestScreenshotKeyboard else { return }
+                didRequestScreenshotKeyboard = true
+                Swift.Task {
+                    try? await Swift.Task.sleep(for: .milliseconds(300))
+                    pipeline.surface?.requestFocus()
+                }
             }
         }
     }

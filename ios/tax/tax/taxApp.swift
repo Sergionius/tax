@@ -7,7 +7,7 @@ struct TaxApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var settingsStore = AppEnvironment.makeSettingsStore()
     @State private var appState = AppState()
-    @State private var remoteStore = RemoteWorkspaceStore()
+    @State private var remoteStore = AppEnvironment.makeRemoteWorkspaceStore()
     private let pendingDestinations = PendingRemoteDestinationStore()
 
     var body: some Scene {

@@ -24,6 +24,14 @@ final class TaxUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Renderer"].exists)
     }
 
+    func testScreenshotModeUsesDeterministicWorkspaceFixtures() {
+        let app = launch("--screenshot-mode", "--screenshot-screen", "workspaces")
+
+        XCTAssertTrue(app.staticTexts["Atlas"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Orbit API"].exists)
+        XCTAssertTrue(app.staticTexts["Release Notes"].exists)
+    }
+
     func testLiveRelayListsWorkspacesAndOpensFiles() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let apiKey = environment["TAX_UI_API_KEY"],
