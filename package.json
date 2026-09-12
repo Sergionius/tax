@@ -1,9 +1,9 @@
 {
   "name": "tax-pi-extension",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Pi notification and remote-reply bridge for tax",
+  "description": "Pi completion notifications for tax",
   "keywords": [
     "pi-package"
   ],

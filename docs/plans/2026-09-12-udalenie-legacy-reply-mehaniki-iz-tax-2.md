@@ -110,10 +110,10 @@ Backend API и SQLite compatibility, CLI, Pi extension, безопасный uni
 - Modify: `scripts/preflight.sh`
 - Modify: `.github/workflows/python.yml`
 
-- [ ] Повысить Python version `0.3.2` → `0.4.0`, Pi package version `0.2.0` → `0.3.0`; iOS metadata оставить без изменений.
-- [ ] Установить Python description `Task Agent eXchange — push notifications and remote Orca workspaces`, Pi description `Pi completion notifications for tax`.
-- [ ] В preflight и CI clean-wheel smoke заменить `agent --help` на `notify --help`, `run --help`, `remote-host --help`; сохранить общий `tax --help`.
-- [ ] Не менять зависимости, peer dependency, Pi extension manifest, Python matrix и остальные CI jobs.
+- [x] Повысить Python version `0.3.2` → `0.4.0`, Pi package version `0.2.0` → `0.3.0`; iOS metadata оставить без изменений.
+- [x] Установить Python description `Task Agent eXchange — push notifications and remote Orca workspaces`, Pi description `Pi completion notifications for tax`.
+- [x] В preflight и CI clean-wheel smoke заменить `agent --help` на `notify --help`, `run --help`, `remote-host --help`; сохранить общий `tax --help`.
+- [x] Не менять зависимости, peer dependency, Pi extension manifest, Python matrix и остальные CI jobs.
 
 ### Task 6: Обновить документацию и убрать устаревшие планы
 
@@ -221,3 +221,5 @@ git grep -n -I -E \
 - Decision: fake-утилиты (`uname`/`launchctl`/`pipx`/`pi`) пишут вызовы в файл из `TAX_TEST_CALLS` и управляются через `TAX_TEST_UNAME_S`/`TAX_TEST_LAUNCHCTL_EXIT`, а временный bin-dir ставится первым в `PATH`; Alternatives: monkeypatch встроенных команд; Reason: тесты обязаны идти через subprocess и гарантированно не запускать реальные пользовательские утилиты; Side effects: none.
 - Decision: в тесте порядка installer проверяется точная последовательность четырёх вызовов (`uname` → `launchctl bootout` → `pipx install` → `pi install`); Alternatives: только относительный порядок uninstall/pipx/pi; Reason: точный список одновременно доказывает, что удалённый launch-agent installer больше не вызывается; Side effects: новые шаги в `install.sh` потребуют обновления списка.
 - Decision: для Task 4 выполнены только `bash -n scripts/install.sh scripts/uninstall-legacy-reply-agent.sh scripts/preflight.sh`, `.venv/bin/ruff check .` и полный `.venv/bin/pytest -q` (79 passed); Alternatives: полный npm/build/preflight; Reason: Task 4 меняет только Bash-скрипты и Python-тесты, package/preflight проверки остаются гейтами Task 5/7 по precedent Task 2/3; Side effects: none.
+- Decision: для Task 5 выполнены `bash -n` трёх скриптов, YAML/JSON-проверка изменённых `python.yml`/`package.json`, полный `./scripts/preflight.sh` (ruff clean, 79 pytest passed, build `tax-0.4.0`, wheel smoke с `tax --help`/`notify --help`/`run --help`/`remote-host --help`, iOS simulator build/unit tests) и `npm test` (17 passed); Alternatives: точечные проверки без полного preflight; Reason: Task 5 меняет сам preflight-скрипт и package metadata, поэтому полный preflight является прямым прогоном изменённого кода; Side effects: none.
+- Decision: версия поднята только в `pyproject.toml`/`package.json` без правки `src/tax/__init__.py`; Alternatives: добавить `__version__`; Reason: в модуле нет `__version__`, preflight намеренно печатает `from pyproject.toml`, а план не требует code change; Side effects: none.

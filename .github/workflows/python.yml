@@ -58,7 +58,9 @@ jobs:
           python -m venv /tmp/tax-wheel
           /tmp/tax-wheel/bin/pip install dist/*.whl
           /tmp/tax-wheel/bin/tax --help
-          /tmp/tax-wheel/bin/tax agent --help
+          /tmp/tax-wheel/bin/tax notify --help
+          /tmp/tax-wheel/bin/tax run --help
+          /tmp/tax-wheel/bin/tax remote-host --help
 
   repository-safety:
     runs-on: ubuntu-latest

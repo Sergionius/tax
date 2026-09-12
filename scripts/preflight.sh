@@ -30,7 +30,9 @@ TMP_VENV="$(mktemp -d)/venv"
 "$PYTHON" -m venv "$TMP_VENV"
 "$TMP_VENV/bin/pip" --quiet install dist/*.whl
 "$TMP_VENV/bin/tax" --help >/dev/null
-"$TMP_VENV/bin/tax" agent --help >/dev/null
+"$TMP_VENV/bin/tax" notify --help >/dev/null
+"$TMP_VENV/bin/tax" run --help >/dev/null
+"$TMP_VENV/bin/tax" remote-host --help >/dev/null
 
 if command -v xcodebuild >/dev/null && [[ -f ios/tax/tax.xcodeproj/project.pbxproj ]]; then
   IOS_DESTINATION="${IOS_DESTINATION:-platform=iOS Simulator,name=iPhone 17}"
