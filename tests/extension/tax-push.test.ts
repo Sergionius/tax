@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { truncatePayloadText } from "./tax-push.ts";
+import { truncatePayloadText } from "../../extensions/tax-push.ts";
 
 test("keeps text within the payload limit unchanged", () => {
   assert.equal(truncatePayloadText("context", 100), "context");

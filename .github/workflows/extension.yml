@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - 'extensions/**'
+      - 'tests/extension/**'
       - 'package.json'
       - '.github/workflows/extension.yml'
   pull_request:
     paths:
       - 'extensions/**'
+      - 'tests/extension/**'
       - 'package.json'
       - '.github/workflows/extension.yml'
 

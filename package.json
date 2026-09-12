@@ -8,14 +8,14 @@
     "pi-package"
   ],
   "scripts": {
-    "test": "node --test extensions/*.test.ts"
+    "test": "node --test tests/extension/*.test.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },
   "pi": {
     "extensions": [
-      "./extensions"
+      "./extensions/tax-push.ts"
     ]
   }
 }
