@@ -146,10 +146,10 @@ Backend API и SQLite compatibility, CLI, Pi extension, безопасный uni
 - Modify: `tests/test_cli.py`
 - Modify: `tests/extension/tax-push.test.ts`
 
-- [ ] Запустить Ruff, полный Pytest, Node tests, package build и preflight командами из раздела Validation; исправлять только регрессии этого изменения.
-- [ ] Проверить содержимое нового wheel: `tax/agent.py` отсутствует, `tax/agent_notifications.py` и bundled Orca terminal bridge сохранены.
-- [ ] Выполнить tracked-text scan из Validation; устранить совпадения вне migration note и текущего removal plan, не ослабляя sensitive-key sets.
-- [ ] Убедиться по существующим tests relay, remote-host, remote protocol и notification hooks, что удаление не нарушает сохранённые функции; не заменять эти проверки настоящими pushes или подключением к Orca.
+- [x] Запустить Ruff, полный Pytest, Node tests, package build и preflight командами из раздела Validation; исправлять только регрессии этого изменения.
+- [x] Проверить содержимое нового wheel: `tax/agent.py` отсутствует, `tax/agent_notifications.py` и bundled Orca terminal bridge сохранены.
+- [x] Выполнить tracked-text scan из Validation; устранить совпадения вне migration note и текущего removal plan, не ослабляя sensitive-key sets.
+- [x] Убедиться по существующим tests relay, remote-host, remote protocol и notification hooks, что удаление не нарушает сохранённые функции; не заменять эти проверки настоящими pushes или подключением к Orca.
 
 ## Validation
 
@@ -230,3 +230,8 @@ git grep -n -I -E \
 - Decision: в quality-automation plan этапы перенумерованы (2–7 после удаления reply-flow этапа), включая подразделы 3.1–3.3; Alternatives: оставить разрыв нумерации; Reason: перенумерация дешевле для чтения и не меняет содержание; Side effects: none.
 - Decision: из backend-plan удалён только `agterm_session_id` (модель и колонка) вместе с reply-acceptance criteria, остальные push-поля сохранены; Alternatives: удалить весь план; Reason: план остаётся полезной историей push filtering и device preferences; Side effects: none.
 - Decision: для Task 6 (documentation-only) выполнены только сверка документов с исходниками (`scripts/install.sh`, `scripts/uninstall-legacy-reply-agent.sh`, `src/tax/cli.py`, `server/main.py`, `server/storage.py`, `scripts/preflight.sh`), tracked-text scan из Validation и проверки отсутствия удалённых файлов/ссылок; Alternatives: ruff/pytest/build/preflight; Reason: Task 6 не меняет код, а compile/test/build команды зарезервированы за Task 7; Side effects: scan-совпадения остались только в README migration note и двух removal-plan документах, как и разрешено.
+- Decision: для Task 7 выполнены все шесть команд из Validation с первой попытки без падений: `ruff check .`, полный `pytest -q` (79 passed), `npm test` (17 passed), `python -m build` (`tax-0.4.0`), `bash -n` трёх скриптов, полный `./scripts/preflight.sh` включая wheel smoke (`tax`/`notify`/`run`/`remote-host --help`) и iOS simulator build/unit tests; Alternatives: частичный прогон; Reason: Task 7 — финальный изолированный гейт всего изменения; Side effects: none.
+- Decision: правки в `tests/test_server.py`, `tests/test_cli.py`, `tests/extension/tax-push.test.ts` не потребовались; Alternatives: исправлять тесты после падений; Reason: все проверки прошли без регрессий, перечисленные файлы в задаче указаны как потенциальные точки правки; Side effects: none.
+- Decision: содержимое wheel проверено листингом `tax-0.4.0-py3-none-any.whl`; Alternatives: установка wheel и импорт-проверки; Reason: листинг напрямую доказывает отсутствие `tax/agent.py` и наличие `tax/agent_notifications.py` и `tax/resources/orca-runtime-terminal-bridge.cjs`, а установка wheel уже выполнена preflight smoke; Side effects: none.
+- Decision: scan-совпадения (README migration note, оба removal-plan документа) признаны разрешёнными без правок текста; Alternatives: переформулировать совпадающие строки; Reason: план прямо допускает migration note и текущий removal plan, исходный removal document сохранён как текущий по Task 6; Side effects: none.
+- Decision: сохранённые функции дополнительно проверены точечным прогоном существующих mock-based тестов (29 Python: relay, relay-client, remote-host, remote-protocol, agent-notifications, orca-runtime/probe) поверх полного suite, без настоящих pushes и подключений к Orca; Alternatives: полагаться только на полный pytest; Reason: чекбокс требует явной проверки сохранённых функций по существующим тестам; Side effects: none.
