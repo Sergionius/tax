@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import os
@@ -6,7 +5,7 @@ import sqlite3
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, WebSocket, status
@@ -26,8 +25,15 @@ except ModuleNotFoundError:  # Standalone deployment runs with server/ as the wo
 
 DB_PATH = os.environ.get("TAX_DB_PATH", "/data/tax.db")
 API_KEY = os.environ.get("TAX_API_KEY", "")
-TASK_REPLY_TTL_SECONDS = 30 * 60
 DEFAULT_REMOTE_HOST_ID = os.environ.get("TAX_REMOTE_HOST_ID", "mac-main")
+
+# Public history projection for GET task/tasks: hides device_token and the legacy status/reply columns.
+TASK_HISTORY_COLUMNS = (
+    "id, title, body, context, logs, source, agent, app, "
+    "orca_terminal_handle, orca_worktree_id, orca_tab_id, orca_pane_key, "
+    "push_status, push_attempted_at, push_environment, apns_status_code, apns_reason, apns_id, "
+    "created_at, updated_at"
+)
 
 APNS_KEY_ID = os.environ.get("TAX_APNS_KEY_ID", "")
 APNS_TEAM_ID = os.environ.get("TAX_APNS_TEAM_ID", "")
@@ -112,16 +118,6 @@ class PushPayload(BaseModel):
     orca_pane_key: Optional[str] = ""
 
 
-class TaskUpdate(BaseModel):
-    status: Optional[Literal["pending", "replied", "delivered", "delivery_failed", "expired"]] = None
-    context: Optional[str] = Field(default=None, max_length=100_000)
-    logs: Optional[str] = Field(default=None, max_length=500_000)
-
-
-class ReplyPayload(BaseModel):
-    text: str = Field(min_length=1, max_length=20_000)
-
-
 class DevicePreferences(BaseModel):
     push_mode: Literal["all", "tax", "off"] = "all"
 
@@ -133,17 +129,6 @@ class DeviceTokenPayload(BaseModel):
 
 def db_conn():
     return storage.connect(DB_PATH)
-
-
-def expire_stale_tasks(conn: sqlite3.Connection) -> int:
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=TASK_REPLY_TTL_SECONDS)).isoformat()
-    cursor = conn.execute(
-        "UPDATE tasks SET status = 'expired', updated_at = ? "
-        "WHERE (status = 'pending' AND created_at < ?) OR (status = 'replied' AND updated_at < ?)",
-        (now_iso(), cutoff, cutoff),
-    )
-    conn.commit()
-    return cursor.rowcount
 
 
 def now_iso() -> str:
@@ -288,16 +273,15 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     try:
         conn.execute(
             "INSERT INTO tasks "
-            "(id, device_token, title, body, status, context, logs, source, agent, app, "
+            "(id, device_token, title, body, context, logs, source, agent, app, "
             "orca_terminal_handle, orca_worktree_id, orca_tab_id, orca_pane_key, push_status, "
             "push_environment, apns_reason, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 task_id,
                 device_token or "",
                 payload.title,
                 payload.body,
-                "pending",
                 payload.context,
                 payload.logs,
                 payload.source,
@@ -344,126 +328,22 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
     }
 
 
-@app.post("/task/{task_id}/update", dependencies=[Depends(require_api_key)])
-async def update_task(task_id: str, update: TaskUpdate):
-    conn = db_conn()
-    cur = conn.cursor()
-
-    fields = []
-    values = []
-    if update.status is not None:
-        fields.append("status = ?")
-        values.append(update.status)
-    if update.context is not None:
-        fields.append("context = ?")
-        values.append(update.context)
-    if update.logs is not None:
-        fields.append("logs = ?")
-        values.append(update.logs)
-
-    if not fields:
-        conn.close()
-        raise HTTPException(status_code=400, detail="no fields to update")
-
-    values.append(now_iso())
-    values.append(task_id)
-
-    cur.execute(f"UPDATE tasks SET {', '.join(fields)}, updated_at = ? WHERE id = ?", values)
-    conn.commit()
-    row = cur.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    conn.close()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="task not found")
-
-    return {"ok": True, "task": row_to_dict(row)}
-
-
 @app.get("/task/{task_id}", dependencies=[Depends(require_api_key)])
 async def get_task(task_id: str):
     conn = db_conn()
-    expire_stale_tasks(conn)
-    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    row = conn.execute(f"SELECT {TASK_HISTORY_COLUMNS} FROM tasks WHERE id = ?", (task_id,)).fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="task not found")
     return {"ok": True, "task": row_to_dict(row)}
-
-
-@app.post("/task/{task_id}/reply", dependencies=[Depends(require_api_key)])
-async def reply(task_id: str, payload: ReplyPayload):
-    log_event(logger, "reply_received", task_id=task_id, reply_length=len(payload.text))
-    conn = db_conn()
-    expire_stale_tasks(conn)
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE tasks SET reply = ?, status = 'replied', updated_at = ? "
-        "WHERE id = ? AND reply IS NULL AND status = 'pending'",
-        (payload.text, now_iso(), task_id),
-    )
-    updated = cur.rowcount
-    conn.commit()
-    row = cur.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    conn.close()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="task not found")
-    if not updated:
-        detail = "task expired" if row["status"] == "expired" else "reply already submitted"
-        raise HTTPException(status_code=409, detail=detail)
-
-    log_event(logger, "reply_saved", task_id=task_id)
-    return {"ok": True, "task": row_to_dict(row)}
-
-
-@app.get("/task/{task_id}/reply", dependencies=[Depends(require_api_key)])
-async def get_reply(task_id: str, wait: bool = False):
-    timeout = 30 if wait else 0
-    deadline = time.time() + timeout
-
-    log_event(logger, "reply_poll_started", level=logging.DEBUG, task_id=task_id, wait=wait, timeout=timeout)
-
-    while True:
-        conn = db_conn()
-        expire_stale_tasks(conn)
-        row = conn.execute("SELECT reply, status FROM tasks WHERE id = ?", (task_id,)).fetchone()
-        conn.close()
-
-        if row and row["reply"]:
-            log_event(logger, "reply_poll_found", task_id=task_id, reply_length=len(row["reply"]))
-            return {"ok": True, "reply": row["reply"]}
-
-        if time.time() >= deadline:
-            break
-        await asyncio.sleep(1)
-
-    log_event(logger, "reply_poll_empty", level=logging.DEBUG, task_id=task_id)
-    return {"ok": False, "reply": None}
-
-
-@app.get("/replies", dependencies=[Depends(require_api_key)])
-async def list_pending_replies(limit: int = Query(default=500, ge=1, le=500)):
-    conn = db_conn()
-    expire_stale_tasks(conn)
-    rows = conn.execute(
-        "SELECT id, reply, orca_terminal_handle, orca_worktree_id, orca_tab_id, orca_pane_key, "
-        "source, agent, app, updated_at "
-        "FROM tasks WHERE status = 'replied' AND reply IS NOT NULL "
-        "ORDER BY updated_at LIMIT ?",
-        (limit,),
-    ).fetchall()
-    conn.close()
-    return {"ok": True, "tasks": [row_to_dict(row) for row in rows]}
-
 
 @app.get("/tasks", dependencies=[Depends(require_api_key)])
 async def list_tasks(
     limit: int = Query(default=50, ge=1, le=500), offset: int = Query(default=0, ge=0)
 ):
     conn = db_conn()
-    expire_stale_tasks(conn)
     rows = conn.execute(
-        "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        f"SELECT {TASK_HISTORY_COLUMNS} FROM tasks ORDER BY created_at DESC LIMIT ? OFFSET ?",
         (limit, offset),
     ).fetchall()
     conn.close()
