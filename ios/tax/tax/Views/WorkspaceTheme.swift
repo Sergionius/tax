@@ -258,6 +258,53 @@ extension View {
     }
 }
 
+// MARK: - Форма настроек
+
+private struct WorkspaceFormScreenThemeModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .workspaceScreenTheme()
+            // Локальная публичная SwiftUI-схема: системные контролы формы (плейсхолдеры,
+            // picker, меню, спиннеры) согласуются с палитрой. Применяется только к
+            // содержимому конкретного экрана и не наследуется терминальным destination.
+            .colorScheme(.dark)
+    }
+}
+
+extension View {
+    /// Применяет тему к экрану на основе `Form`: как `workspaceScreenTheme()`, плюс
+    /// локальная тёмная цветовая схема для системных контролов.
+    func workspaceFormScreenTheme() -> some View {
+        modifier(WorkspaceFormScreenThemeModifier())
+    }
+
+    /// Строка `Form` в палитре: фон `surface` и приглушённый разделитель.
+    func workspaceFormRow() -> some View {
+        listRowBackground(WorkspaceTheme.surface)
+            .listRowSeparatorTint(WorkspaceTheme.borderLo)
+    }
+}
+
+/// Заголовок секции `Form` в палитре: приглушённый текст Space Grotesk.
+/// Верхний регистр сохраняется — это нативное оформление заголовков `Form`.
+struct WorkspaceFormSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.workspaceUI(.footnote, weight: .medium))
+            .foregroundStyle(WorkspaceTheme.textLo)
+    }
+}
+
+extension View {
+    /// Футер секции `Form` в палитре: приглушённый технический текст Space Grotesk.
+    func workspaceFormSectionFooter() -> some View {
+        font(.workspaceUI(.footnote))
+            .foregroundStyle(WorkspaceTheme.textDim)
+    }
+}
+
 // MARK: - Секции и состояния экрана
 
 /// Тематический заголовок секции списка: приглушённый текст Space Grotesk
@@ -340,4 +387,74 @@ extension TextEditor {
             .tint(WorkspaceTheme.accent)
             .scrollContentBackground(.hidden)
     }
+}
+
+// MARK: - Previews
+
+/// Образец общей карточки для previews темы: полоса активности, заголовок,
+/// бейдж, ветка и длинный путь. Только для previews — без store и моков рантайма.
+private struct WorkspaceThemePreviewCard: View {
+    var isActive: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            WorkspaceActiveBar(isActive: isActive)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(isActive ? "payments-service" : "nightly-maintenance")
+                        .font(.workspaceUI(.headline, weight: .semibold))
+                        .foregroundStyle(WorkspaceTheme.textHi)
+                        .lineLimit(1)
+                    WorkspaceBadge(text: isActive ? "running" : "idle", icon: "brain", isActive: isActive)
+                }
+                Text("feature/dark-ui-retheme")
+                    .font(.workspaceMono(.caption))
+                    .foregroundStyle(WorkspaceTheme.textLo)
+                    .lineLimit(1)
+                Text("/Users/dev/work/very-long-project-directory/sources/feature/deeply/nested/module/Implementation/File.swift")
+                    .font(.workspaceMono(.caption2))
+                    .foregroundStyle(WorkspaceTheme.textDim)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .workspaceEmphasis(isActive: isActive)
+    }
+}
+
+#Preview("Cards and badges · active/inactive, long path") {
+    ScrollView {
+        VStack(spacing: 12) {
+            WorkspaceThemePreviewCard(isActive: true)
+                .workspaceCard()
+            WorkspaceThemePreviewCard(isActive: false)
+                .workspaceCard()
+            HStack(spacing: 8) {
+                WorkspaceBadge(text: "running", icon: "brain")
+                WorkspaceBadge(text: "idle", icon: "brain", isActive: false)
+                WorkspaceBadge(text: "connected")
+                WorkspaceBadge(text: "offline", isActive: false)
+            }
+        }
+        .padding(WorkspaceTheme.cardPadding)
+    }
+    .background(WorkspaceTheme.bg.ignoresSafeArea())
+}
+
+#Preview("Cards and badges · large Dynamic Type") {
+    ScrollView {
+        VStack(spacing: 12) {
+            WorkspaceThemePreviewCard(isActive: true)
+                .workspaceCard()
+            WorkspaceThemePreviewCard(isActive: false)
+                .workspaceCard()
+            HStack(spacing: 8) {
+                WorkspaceBadge(text: "running", icon: "brain")
+                WorkspaceBadge(text: "idle", icon: "brain", isActive: false)
+            }
+        }
+        .padding(WorkspaceTheme.cardPadding)
+    }
+    .background(WorkspaceTheme.bg.ignoresSafeArea())
+    .environment(\.dynamicTypeSize, .accessibility1)
 }

@@ -14,12 +14,17 @@ struct SettingsView: View {
         @Bindable var settings = settings
 
         Form {
-            Section("Server") {
+            Section {
                 TextField("Server URL", text: $settings.serverURL)
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("settings.serverURL")
                     .keyboardType(.URL)
                     .autocorrectionDisabled()
+                    .font(.workspaceMono(.body))
+                    .foregroundStyle(WorkspaceTheme.textHi)
+                    .workspaceFormRow()
+            } header: {
+                WorkspaceFormSectionHeader(title: "Server")
             }
 
             Section {
@@ -28,19 +33,24 @@ struct SettingsView: View {
                         TextField("API Key", text: $settings.apiKey)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                            .font(.system(.body, design: .monospaced))
+                            .font(.workspaceMono(.body))
+                            .foregroundStyle(WorkspaceTheme.textHi)
                     } else {
                         SecureField("API Key", text: $settings.apiKey)
                             .textInputAutocapitalization(.never)
                             .accessibilityIdentifier("settings.apiKey")
                             .autocorrectionDisabled()
+                            .font(.workspaceMono(.body))
+                            .foregroundStyle(WorkspaceTheme.textHi)
                     }
 
                     Button(showAPIKey ? "Hide" : "Show") {
                         showAPIKey.toggle()
                     }
                     .buttonStyle(.borderless)
+                    .font(.workspaceUI(.body, weight: .medium))
                 }
+                .workspaceFormRow()
 
                 HStack {
                     Button(settings.apiKey.isEmpty ? "Paste" : "Copy API Key") {
@@ -60,45 +70,68 @@ struct SettingsView: View {
                         statusMessage = "API key cleared."
                     }
                     .disabled(settings.apiKey.isEmpty)
+                    .font(.workspaceUI(.body))
                 }
+                .workspaceFormRow()
             } header: {
-                Text("API Key")
+                WorkspaceFormSectionHeader(title: "API Key")
             } footer: {
                 Text("Saved in Keychain when you tap Save Settings.")
+                    .workspaceFormSectionFooter()
             }
 
-            Section("Remote Mac") {
+            Section {
                 TextField("Host ID", text: $settings.hostID)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .font(.workspaceMono(.body))
+                    .foregroundStyle(WorkspaceTheme.textHi)
+                    .workspaceFormRow()
                 TextField("Device ID", text: $settings.remoteDeviceID)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .font(.workspaceMono(.body))
+                    .foregroundStyle(WorkspaceTheme.textHi)
+                    .workspaceFormRow()
                 SecureField("256-bit encryption key", text: $settings.e2eeKey)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .font(.system(.body, design: .monospaced))
+                    .font(.workspaceMono(.body))
+                    .foregroundStyle(WorkspaceTheme.textHi)
+                    .workspaceFormRow()
                 Button("Paste Encryption Key") {
                     settings.e2eeKey = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     statusMessage = settings.e2eeKey.isEmpty ? "Pasteboard is empty." : "Encryption key pasted."
                 }
+                .font(.workspaceUI(.body))
+                .workspaceFormRow()
+            } header: {
+                WorkspaceFormSectionHeader(title: "Remote Mac")
             }
 
-            Section("Notifications") {
+            Section {
                 Picker("Push notifications", selection: $settings.pushMode) {
                     ForEach(PushMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }
                 .disabled(isSyncingPushMode)
+                .font(.workspaceUI(.body))
+                .workspaceFormRow()
 
                 if isSyncingPushMode {
-                    HStack {
+                    HStack(spacing: 10) {
                         ProgressView()
+                            .controlSize(.small)
+                            .tint(WorkspaceTheme.accent)
                         Text("Syncing…")
-                            .foregroundStyle(.secondary)
+                            .font(.workspaceUI(.subheadline))
+                            .foregroundStyle(WorkspaceTheme.textLo)
                     }
+                    .workspaceFormRow()
                 }
+            } header: {
+                WorkspaceFormSectionHeader(title: "Notifications")
             }
             .onChange(of: settings.pushMode) { _, _ in
                 syncPushMode()
@@ -107,11 +140,15 @@ struct SettingsView: View {
             Section {
                 if settings.deviceToken.isEmpty {
                     ContentUnavailableView("Not registered yet", systemImage: "iphone.badge.exclamationmark")
+                        .foregroundStyle(WorkspaceTheme.textLo)
                         .frame(maxWidth: .infinity)
+                        .workspaceFormRow()
                 } else {
                     Text(settings.deviceToken)
-                        .font(.caption.monospaced())
+                        .font(.workspaceMono(.caption))
+                        .foregroundStyle(WorkspaceTheme.textHi)
                         .textSelection(.enabled)
+                        .workspaceFormRow()
                 }
 
                 Button("Copy Device Token") {
@@ -119,13 +156,17 @@ struct SettingsView: View {
                     statusMessage = "Device token copied."
                 }
                 .disabled(settings.deviceToken.isEmpty)
+                .font(.workspaceUI(.body))
+                .workspaceFormRow()
 
                 Button(isRegistering ? "Requesting…" : "Request Push Registration") {
                     requestPushRegistration()
                 }
                 .disabled(isRegistering)
+                .font(.workspaceUI(.body))
+                .workspaceFormRow()
             } header: {
-                Text("Device Token")
+                WorkspaceFormSectionHeader(title: "Device Token")
             }
 
             Section {
@@ -137,21 +178,44 @@ struct SettingsView: View {
                     }
                 }
                 .accessibilityIdentifier("settings.save")
+                .font(.workspaceUI(.body, weight: .medium))
+                .workspaceFormRow()
 
                 Button(isCheckingHealth ? "Checking…" : "Check Server Health") {
                     Swift.Task { await checkHealth() }
                 }
                 .disabled(isCheckingHealth)
+                .font(.workspaceUI(.body, weight: .medium))
+                .workspaceFormRow()
             }
 
             if let statusMessage {
-                Section("Status") {
-                    Text(statusMessage)
-                        .foregroundStyle(settings.lastSaveError == nil ? Color.secondary : Color.red)
+                Section {
+                    // Нативный `.red` для ошибок сохраняется; новых оттенков не добавляется —
+                    // различимость обеспечивают текст и иконка.
+                    HStack(spacing: 8) {
+                        Image(systemName: statusIsError ? "exclamationmark.triangle" : "checkmark.circle")
+                            .font(.workspaceUI(.subheadline, weight: .medium))
+                            .foregroundStyle(statusIsError ? Color.red : WorkspaceTheme.textLo)
+                        Text(statusMessage)
+                            .font(.workspaceUI(.subheadline))
+                            .foregroundStyle(statusIsError ? Color.red : WorkspaceTheme.textLo)
+                    }
+                    .workspaceFormRow()
+                } header: {
+                    WorkspaceFormSectionHeader(title: "Status")
                 }
             }
         }
+        .workspaceFormScreenTheme()
+        .workspaceScreenBackground()
         .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
+        .workspacePrincipalTitle("Settings")
+    }
+
+    private var statusIsError: Bool {
+        settings.lastSaveError != nil
     }
 
     private func requestPushRegistration() {
