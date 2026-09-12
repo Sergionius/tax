@@ -7,7 +7,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 import requests
 
@@ -50,7 +49,20 @@ def get_headers(config: dict) -> dict:
 
 
 def send_push(
-    server: str, api_key: str, device_token: str, title: str, body: str, context: str = "", logs: str = ""
+    server: str,
+    api_key: str,
+    device_token: str,
+    title: str,
+    body: str,
+    *,
+    context: str = "",
+    logs: str = "",
+    agent: str = "",
+    host_id: str = "",
+    orca_terminal_handle: str = "",
+    orca_worktree_id: str = "",
+    orca_tab_id: str = "",
+    orca_pane_key: str = "",
 ) -> dict:
     payload = {
         "device_token": device_token,
@@ -58,33 +70,18 @@ def send_push(
         "body": body,
         "context": context,
         "logs": logs,
+        "source": "tax-cli",
+        "agent": agent,
+        "app": "tax",
+        "host_id": host_id,
+        "orca_terminal_handle": orca_terminal_handle,
+        "orca_worktree_id": orca_worktree_id,
+        "orca_tab_id": orca_tab_id,
+        "orca_pane_key": orca_pane_key,
     }
     r = requests.post(f"{server}/push", json=payload, headers={"Authorization": f"Bearer {api_key}"}, timeout=30)
     r.raise_for_status()
     return r.json()
-
-
-def poll_reply(server: str, api_key: str, task_id: str, timeout: int = 60) -> Optional[str]:
-    """Long-poll for reply from iPhone."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            r = requests.get(
-                f"{server}/task/{task_id}/reply",
-                params={"wait": "true"},
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=35,
-            )
-            r.raise_for_status()
-            data = r.json()
-            if data.get("ok") and data.get("reply"):
-                return data["reply"]
-        except requests.exceptions.ReadTimeout:
-            continue
-        except requests.exceptions.RequestException as e:
-            print(f"[tax] poll error: {e}", file=sys.stderr)
-            time.sleep(5)
-    return None
 
 
 def orca_cli_command() -> list[str]:
@@ -97,36 +94,7 @@ def orca_cli_command() -> list[str]:
     return [executable] if executable else []
 
 
-def send_to_orca(value: str, target: str = "") -> bool:
-    """Insert and submit text in one explicitly identified Orca terminal."""
-    command = orca_cli_command()
-    handle = target or os.environ.get("ORCA_TERMINAL_HANDLE", "").strip()
-    if not command:
-        print("[tax] orca CLI not found in PATH", file=sys.stderr)
-        return False
-    if not handle:
-        print("[tax] ORCA_TERMINAL_HANDLE is not set", file=sys.stderr)
-        return False
-    result = subprocess.run(
-        [*command, "terminal", "send", "--terminal", handle, "--text", value, "--enter", "--json"],
-        text=True,
-        check=False,
-        capture_output=True,
-        timeout=15,
-    )
-    try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        print(f"[tax] Orca returned invalid response: {result.stderr.strip()}", file=sys.stderr)
-        return False
-    accepted = payload.get("ok") is True and payload.get("result", {}).get("send", {}).get("accepted") is True
-    if not accepted:
-        error = payload.get("error", {})
-        print(f"[tax] Orca delivery failed: {error.get('code', 'unknown_error')}: {error.get('message', '')}", file=sys.stderr)
-    return accepted
-
-
-def run_agent(argv: list[str], detach: bool = False) -> int:
+def run_command(argv: list[str]) -> int:
     config = load_config()
     server = get_server(config)
     api_key = get_api_key(config)
@@ -143,11 +111,7 @@ def run_agent(argv: list[str], detach: bool = False) -> int:
         print("[tax] error: no command to run", file=sys.stderr)
         return 1
 
-    # device_token is required only when expecting a real push
-    if not device_token:
-        print("[tax] warning: device_token not configured; task will be stored but no push sent", file=sys.stderr)
-
-    # Run the agent and capture output
+    # Run the command without a shell and stream its merged output
     print(f"[tax] running: {' '.join(argv)}")
     proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     output_lines: list[str] = []
@@ -169,39 +133,40 @@ def run_agent(argv: list[str], detach: bool = False) -> int:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+        proc.wait()
 
     exit_code = proc.returncode
     logs = "\n".join(output_lines[-500:])  # last 500 lines
 
-    # Send push
+    # Send one best-effort completion push; never alter the command's exit code
     status = "completed" if exit_code == 0 else "failed"
-    title = f"pi {status}"
+    title = f"{Path(argv[0]).name} {status}"
     body = f"exit code {exit_code}"
     context = f"Command: {' '.join(argv)}"
+    worktree_id = os.environ.get("ORCA_WORKTREE_ID", "").strip() or os.environ.get("ORCA_WORKSPACE_ID", "").strip()
 
     try:
-        resp = send_push(server, api_key, device_token, title, body, context=context, logs=logs)
-        task_id = resp.get("task_id")
-        if not task_id:
+        resp = send_push(
+            server,
+            api_key,
+            device_token,
+            title,
+            body,
+            context=context,
+            logs=logs,
+            agent=Path(argv[0]).name,
+            host_id=os.environ.get("TAX_HOST_ID", "").strip() or "mac-main",
+            orca_terminal_handle=os.environ.get("ORCA_TERMINAL_HANDLE", "").strip(),
+            orca_worktree_id=worktree_id,
+            orca_tab_id=os.environ.get("ORCA_TAB_ID", "").strip(),
+            orca_pane_key=os.environ.get("ORCA_PANE_KEY", "").strip(),
+        )
+        if resp.get("task_id"):
+            print(f"[tax] push sent, task_id={resp['task_id']}")
+        else:
             print("[tax] backend did not return task_id", file=sys.stderr)
-            return exit_code
-        print(f"[tax] push sent, task_id={task_id}")
-    except requests.RequestException as e:
+    except (requests.RequestException, ValueError) as e:
         print(f"[tax] failed to send push: {e}", file=sys.stderr)
-        return exit_code
-
-    if detach:
-        print("[tax] detached; reply ignored")
-        return exit_code
-
-    # Poll for reply
-    print("[tax] waiting for reply from iPhone...")
-    reply = poll_reply(server, api_key, task_id, timeout=300)
-    if reply:
-        print(f"[tax] reply received: {reply}")
-        send_to_orca(reply)
-    else:
-        print("[tax] no reply received within timeout")
 
     return exit_code
 
@@ -225,7 +190,7 @@ def cmd_config(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    return run_agent(args.command, detach=args.detach)
+    return run_command(args.command)
 
 
 def cmd_e2ee_key(args: argparse.Namespace) -> int:
@@ -287,19 +252,6 @@ def cmd_remote_smoke(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_agent(args: argparse.Namespace) -> int:
-    from tax.agent import run_agent_server
-
-    config = load_config()
-    return run_agent_server(
-        server=args.server or get_server(config),
-        api_key=args.api_key or get_api_key(config),
-        port=args.port,
-        state_dir=Path(args.state_dir).expanduser() if args.state_dir else None,
-        poll_ttl=args.poll_ttl,
-    )
-
-
 def _doctor_check(name: str, ok: bool, detail: str) -> bool:
     print(f"{'✓' if ok else '✗'} {name}: {detail}")
     return ok
@@ -332,14 +284,6 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             _doctor_check("backend", True, get_server(config))
         except requests.RequestException as error:
             required_ok &= _doctor_check("backend", False, str(error))
-
-    try:
-        response = requests.get("http://127.0.0.1:17373/health", timeout=2)
-        response.raise_for_status()
-        health = response.json()
-        _doctor_check("tax-agent", True, f"running, watching {health.get('watching', 0)} task(s)")
-    except (requests.RequestException, ValueError) as error:
-        required_ok &= _doctor_check("tax-agent", False, str(error))
 
     token = get_device_token(config)
     print(f"{'✓' if token else '-'} device token: {'configured' if token else 'backend registration fallback'}")
@@ -468,7 +412,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         r.raise_for_status()
         data = r.json()
         for task in data.get("tasks", []):
-            print(f"{task['id']} | {task['status']:12} | {task['title']} | {task['updated_at']}")
+            push_status = task.get("push_status") or "unknown"
+            print(f"{task['id']} | {push_status:12} | {task['title']} | {task['updated_at']}")
     except requests.RequestException as e:
         print(f"[tax] failed to fetch status: {e}", file=sys.stderr)
         return 1
@@ -477,7 +422,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        prog="tax", description="Task Agent eXchange — push and remote reply for AI agents"
+        prog="tax", description="Task Agent eXchange — push notifications and remote Orca workspaces"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -494,9 +439,8 @@ def main() -> int:
     p_e2ee_key.set_defaults(func=cmd_e2ee_key)
 
     # run
-    p_run = subparsers.add_parser("run", help="Run a command and notify iPhone on completion")
+    p_run = subparsers.add_parser("run", help="Run a command and send one completion push")
     p_run.add_argument("command", nargs=argparse.REMAINDER, help="Command to run")
-    p_run.add_argument("--detach", action="store_true", help="Do not wait for reply")
     p_run.set_defaults(func=cmd_run)
 
     # remote-host
@@ -516,20 +460,6 @@ def main() -> int:
     p_remote_smoke.add_argument("--device-id", required=True)
     p_remote_smoke.add_argument("--start-pi", action="store_true")
     p_remote_smoke.set_defaults(func=cmd_remote_smoke)
-
-    # agent
-    p_agent = subparsers.add_parser("agent", help="Run the background reply bridge for Pi terminals in Orca")
-    p_agent.add_argument("--server", help="Backend URL (defaults to tax config or TAX_SERVER)")
-    p_agent.add_argument("--api-key", help="Backend API key (defaults to tax config or TAX_API_KEY)")
-    p_agent.add_argument("--port", type=int, default=17373, help="Loopback HTTP port (default: 17373)")
-    p_agent.add_argument("--state-dir", help="Persistent state directory")
-    p_agent.add_argument(
-        "--poll-ttl",
-        type=int,
-        default=1800,
-        help="Expire unanswered tasks after this many seconds (default: 1800)",
-    )
-    p_agent.set_defaults(func=cmd_agent)
 
     # doctor
     p_doctor = subparsers.add_parser("doctor", help="Check tax, backend, and Orca integration")

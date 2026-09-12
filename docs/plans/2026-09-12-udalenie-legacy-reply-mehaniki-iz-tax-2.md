@@ -61,18 +61,18 @@ Backend API и SQLite compatibility, CLI, Pi extension, безопасный uni
 - Delete: `tests/test_agent.py`
 - Delete: `tests/test_integration_flow.py`
 
-- [ ] Удалить перечисленные agent-файлы, `cmd_agent`, parser subcommand `agent`, `poll_reply` и `send_to_orca`; удалить только ставшие ненужными imports.
-- [ ] Сохранить `orca_cli_command`; из `cmd_doctor` удалить только loopback health-check, оставив Orca CLI/runtime, API key, backend и сообщение о device registration fallback.
-- [ ] Переименовать `run_agent` в `run_command`, обновить `cmd_run`, удалить `--detach` и весь reply-wait flow.
-- [ ] Сохранить запуск argv без shell, streaming объединённых stdout/stderr и последние 500 строк в logs. Дождаться завершения процесса перед чтением exit code, включая ветку terminate/kill после KeyboardInterrupt.
-- [ ] Формировать title как `<Path(argv[0]).name> completed` либо `failed`, body с exit code и существующий command context.
-- [ ] Расширить `send_push` явными keyword-only metadata-параметрами: `source="tax-cli"`, executable basename в `agent`, `app="tax"`, trimmed `TAX_HOST_ID` с default `mac-main`, `ORCA_TERMINAL_HANDLE`, `ORCA_WORKTREE_ID` с fallback на `ORCA_WORKSPACE_ID`, `ORCA_TAB_ID`, `ORCA_PANE_KEY`.
-- [ ] Отправлять один completion push и возвращать исходный exit code независимо от HTTP failure, некорректного JSON или отсутствующего `task_id`; не добавлять retries, polling или локальную очередь. Сохранить существующие проверки API key и пустого argv.
-- [ ] Убрать ложное предупреждение при отсутствующем device token; разрешить generic wrapper работать вне Orca с пустыми routing-полями.
-- [ ] Перевести `cmd_status` на `task.get("push_status") or "unknown"` без fallback к legacy `status`.
-- [ ] Обновить CLI description на `Task Agent eXchange — push notifications and remote Orca workspaces`.
-- [ ] Удалить injection test и обновить тест пустой команды. Добавить mocked tests success/nonzero exit, streaming, payload metadata/defaults, backend failure/invalid response, отсутствующего token и отсутствия любых GET после completion.
-- [ ] Добавить tests CLI dispatch/help без agent и detach, doctor без локальных обращений и status для `sent`, `failed`, `skipped`, `queued`, `NULL`. Сохранить остальные существующие CLI tests.
+- [x] Удалить перечисленные agent-файлы, `cmd_agent`, parser subcommand `agent`, `poll_reply` и `send_to_orca`; удалить только ставшие ненужными imports.
+- [x] Сохранить `orca_cli_command`; из `cmd_doctor` удалить только loopback health-check, оставив Orca CLI/runtime, API key, backend и сообщение о device registration fallback.
+- [x] Переименовать `run_agent` в `run_command`, обновить `cmd_run`, удалить `--detach` и весь reply-wait flow.
+- [x] Сохранить запуск argv без shell, streaming объединённых stdout/stderr и последние 500 строк в logs. Дождаться завершения процесса перед чтением exit code, включая ветку terminate/kill после KeyboardInterrupt.
+- [x] Формировать title как `<Path(argv[0]).name> completed` либо `failed`, body с exit code и существующий command context.
+- [x] Расширить `send_push` явными keyword-only metadata-параметрами: `source="tax-cli"`, executable basename в `agent`, `app="tax"`, trimmed `TAX_HOST_ID` с default `mac-main`, `ORCA_TERMINAL_HANDLE`, `ORCA_WORKTREE_ID` с fallback на `ORCA_WORKSPACE_ID`, `ORCA_TAB_ID`, `ORCA_PANE_KEY`.
+- [x] Отправлять один completion push и возвращать исходный exit code независимо от HTTP failure, некорректного JSON или отсутствующего `task_id`; не добавлять retries, polling или локальную очередь. Сохранить существующие проверки API key и пустого argv.
+- [x] Убрать ложное предупреждение при отсутствующем device token; разрешить generic wrapper работать вне Orca с пустыми routing-полями.
+- [x] Перевести `cmd_status` на `task.get("push_status") or "unknown"` без fallback к legacy `status`.
+- [x] Обновить CLI description на `Task Agent eXchange — push notifications and remote Orca workspaces`.
+- [x] Удалить injection test и обновить тест пустой команды. Добавить mocked tests success/nonzero exit, streaming, payload metadata/defaults, backend failure/invalid response, отсутствующего token и отсутствия любых GET после completion.
+- [x] Добавить tests CLI dispatch/help без agent и detach, doctor без локальных обращений и status для `sent`, `failed`, `skipped`, `queued`, `NULL`. Сохранить остальные существующие CLI tests.
 
 ### Task 3: Оставить в Pi extension только completion push
 
@@ -205,5 +205,10 @@ git grep -n -I -E \
 - Decision: оставить wire client identifier `tax-agent` в Orca adapter/bridge и существующий notification dedupe state; Alternatives: глобально переименовать все строки agent и удалить весь state; Reason: они относятся к сохраняемым runtime/notification функциям, а не reply-agent; Side effects: историческое wire-имя остаётся без изменения совместимости.
 - Decision: сохранить `reply` в sensitive-key sets обоих logging modules; Alternatives: удалить вместе с моделью reply; Reason: защита от исторических и неожиданных payloads; Side effects: none.
 - Decision: считать полный Pytest пройденным для Task 1 при единственном падении `tests/test_integration_flow.py::test_backend_reply_is_delivered_once_and_acknowledged`; Alternatives: досрочно удалить файл в Task 1; Reason: файл входит в список Delete Task 2, на базовом коммите e8b4fde тест проходит, а после Task 1 падает только на mandated 404 удалённого reply-endpoint, то есть регрессии нет; Side effects: зелёный полный suite остаётся гейтом Task 7.
+- Decision: чтение TAX_HOST_ID/ORCA_* env и их тримминг/fallback размещены в `run_command`, а `send_push` принимает готовые keyword-only строки и жёстко задаёт `source="tax-cli"`/`app="tax"`; Alternatives: читать env внутри `send_push`; Reason: `send_push` остаётся чистой и напрямую тестируемой функцией, а wrapper собирает metadata один раз; Side effects: none.
+- Decision: в `run_command` completion push обёрнут в `except (requests.RequestException, ValueError)`; Alternatives: ловить только RequestException; Reason: `requests`-JSONDecodeError наследует и RequestException, и ValueError, поэтому пара классов покрывает HTTP failure и некорректный JSON без дополнительных исключений; Side effects: none.
+- Decision: после terminate/kill в ветке KeyboardInterrupt добавлен финальный безусловный `proc.wait()`; Alternatives: читать `returncode` без ожидания; Reason: требование читать exit code только после завершения процесса; Side effects: none.
+- Decision: обновить help subcommand `run` на «Run a command and send one completion push»; Alternatives: сохранить прежний текст про iPhone; Reason: точное описание fire-and-forget wrapper, обязательный текст в плане отсутствует; Side effects: none.
+- Decision: для Task 2 выполнены только `.venv/bin/ruff check .`, полный `.venv/bin/pytest -q` (75 passed) и `npm test` (4 passed); Alternatives: полный preflight/build; Reason: Task 2 меняет только Python CLI и его тесты, package build и preflight остаются гейтами Task 5/7; Side effects: none.
 - Decision: разделить сценарий registration fallback на два теста (fallback на последнюю регистрацию и device_token_missing на чистой БД); Alternatives: один тест с двумя push; Reason: существующее поведение `/push` подставляет последнюю зарегистрированную даже без device_token, поэтому случай missing token требует БД без регистраций; Side effects: дополнительный тест без изменения продакшн-кода.
 - Decision: в migration test сравнивать только legacy-колонки строки плюс NULL в новых колонках; Alternatives: сравнивать строку целиком; Reason: additive migration физически добавляет новые NULL-колонки к старой строке; Side effects: none.
