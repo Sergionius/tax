@@ -47,22 +47,24 @@ if command -v xcodebuild >/dev/null && [[ -f ios/tax/tax.xcodeproj/project.pbxpr
   grep -q 'CURRENT_PROJECT_VERSION = ' ios/tax/tax.xcodeproj/project.pbxproj
 
   echo "== iOS simulator build =="
+  # SWIFT_TREAT_WARNINGS_AS_ERRORS is intentionally not passed: it adds
+  # -warnings-as-errors to every Swift invocation, which conflicts with the
+  # -suppress-warnings flag used by SwiftTerm's SwiftTermBuildInfoGenerator
+  # target. CI does not use this flag either.
   xcodebuild -quiet -project ios/tax/tax.xcodeproj -scheme tax \
     -destination 'generic/platform=iOS Simulator' -configuration Debug \
-    CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build
+    CODE_SIGNING_ALLOWED=NO build
 
   echo "== iOS unit tests =="
   xcodebuild -quiet test -project ios/tax/tax.xcodeproj -scheme tax \
     -destination "$IOS_DESTINATION" -only-testing:taxTests \
-    -resultBundlePath "$IOS_RESULT_DIR/unit-tests.xcresult" \
-    SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+    -resultBundlePath "$IOS_RESULT_DIR/unit-tests.xcresult"
 
   if [[ "${IOS_UI_TESTS:-0}" == "1" ]]; then
     echo "== iOS UI smoke tests =="
     xcodebuild -quiet test -project ios/tax/tax.xcodeproj -scheme tax \
       -destination "$IOS_DESTINATION" -only-testing:taxUITests \
-      -resultBundlePath "$IOS_RESULT_DIR/ui-tests.xcresult" \
-      SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+      -resultBundlePath "$IOS_RESULT_DIR/ui-tests.xcresult"
   fi
 
   "$ROOT_DIR/scripts/release-notes.sh" > "$IOS_RESULT_DIR/release-notes.md"
