@@ -194,6 +194,53 @@ export TAX_HOST_ID=mac-main
 
 При нажатии push приложение открывает соответствующий Mac, workspace или terminal. Устаревший task/reply UI удалён.
 
+## Claude Code and Codex notifications
+
+TAX can send the same terminal-aware completion notifications for Pi, Claude Code, and Codex. Pi continues to use `extensions/tax-push.ts`; enabling the hooks below does not change or replace the Pi extension.
+
+Before enabling a hook:
+
+1. Install the CLI with `./scripts/install.sh` and confirm that `tax` is available in `PATH`.
+2. Configure the backend with `tax config`.
+3. Run the agent inside an Orca terminal. TAX intentionally skips the notification when `ORCA_TERMINAL_HANDLE` is unavailable, because the iPhone would not have a terminal to open.
+
+### Claude Code
+
+Merge this `Stop` hook into `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tax notify claude"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Claude Code writes the hook event to standard input. TAX uses only the final assistant message and event metadata; it does not read the transcript file. Claude Code hooks are disabled when Claude is started with `--bare`.
+
+### Codex
+
+Add the following top-level setting to `~/.codex/config.toml`:
+
+```toml
+notify = ["tax", "notify", "codex"]
+```
+
+Codex appends the `agent-turn-complete` JSON event as the final command-line argument.
+
+Both adapters include the Orca terminal/worktree identifiers from the environment, post to the existing `/push` endpoint, and exit successfully even if notification delivery fails. Duplicate completion events are suppressed locally. To print hook errors during setup, start the agent with `TAX_PUSH_DEBUG=1`.
+
+The push preview contains a shortened final response. The full final response and basic event context are sent to the configured TAX backend, matching the existing Pi notification behavior.
+
 ## Backend deploy
 
 С Mac:
