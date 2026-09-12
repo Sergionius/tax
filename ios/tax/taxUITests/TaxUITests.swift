@@ -32,6 +32,14 @@ final class TaxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Release Notes"].exists)
     }
 
+    func testScreenshotDetailScreensIncludeBackButton() {
+        for screen in ["files", "settings"] {
+            let app = launch("--screenshot-mode", "--screenshot-screen", screen)
+            XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 8), "Missing Back button on \(screen)")
+            app.terminate()
+        }
+    }
+
     func testLiveRelayListsWorkspacesAndOpensFiles() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let apiKey = environment["TAX_UI_API_KEY"],

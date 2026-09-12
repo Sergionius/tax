@@ -30,13 +30,9 @@ private struct ScreenshotRootView: View {
         case .terminal:
             ScreenshotTerminalRootView()
         case .files:
-            NavigationStack {
-                FileBrowserView(workspaceID: ScreenshotFixtures.primaryWorkspace.id, path: "")
-            }
+            ScreenshotFilesRootView()
         case .settings:
-            NavigationStack {
-                SettingsView()
-            }
+            ScreenshotSettingsRootView()
         }
     }
 }
@@ -52,6 +48,38 @@ private struct ScreenshotTerminalRootView: View {
                     if case let .terminal(terminal) = route {
                         TerminalView(terminal: terminal)
                     }
+                }
+        }
+    }
+}
+
+private struct ScreenshotFilesRootView: View {
+    @State private var path = ["files"]
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            Color.clear
+                .workspaceScreenBackground()
+                .navigationDestination(for: String.self) { _ in
+                    FileBrowserView(workspaceID: ScreenshotFixtures.primaryWorkspace.id, path: "")
+                }
+        }
+    }
+}
+
+private enum ScreenshotSettingsRoute: Hashable {
+    case settings
+}
+
+private struct ScreenshotSettingsRootView: View {
+    @State private var path: [ScreenshotSettingsRoute] = [.settings]
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            Color.clear
+                .workspaceScreenBackground()
+                .navigationDestination(for: ScreenshotSettingsRoute.self) { _ in
+                    SettingsView()
                 }
         }
     }
