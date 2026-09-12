@@ -1,3 +1,5 @@
+**TAX — Task Agent eXchange.**
+
 # tax — remote Orca workspace for iPhone
 
 `tax` позволяет с iPhone подключаться к открытым workspace и терминалам Orca на Mac через зашифрованный relay. Приложение показывает ANSI/TUI-вывод, отправляет ввод в выбранный PTY, создаёт и закрывает терминалы, запускает `pi`, а также позволяет безопасно просматривать и редактировать файлы workspace.
