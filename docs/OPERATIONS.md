@@ -1,24 +1,25 @@
 # tax operations runbook
 
-## Status flow
+## Push status flow
 
-`pending → replied → delivered` is the successful path. `delivery_failed` is terminal. The Mac agent may temporarily keep `delivered_pending_sync` or `delivery_failed_pending_sync` while the backend is unavailable; these states prevent duplicate text injection.
+Every notification task records a `push_status`:
 
-## Orca delivery failures
+- `queued` — task accepted, APNs send scheduled;
+- `sent` — Apple accepted the push (HTTP 2xx);
+- `failed` — APNs rejected the request or was unreachable; `apns_status_code` and `apns_reason` are stored on the task;
+- `skipped` — no device token, `push_mode` is `off`, or the app filter rejected the source.
 
-1. Run `orca status --json` and confirm the runtime is reachable and ready.
-2. Run `orca terminal list --json` and verify the saved terminal is writable.
-3. Run `tax doctor` and inspect `~/.local/state/tax/logs/agent-error.log`.
-4. Never resend to the active terminal. A stale handle is recoverable only by an exact saved tab/leaf match.
-5. After an unknown or timed-out send result, do not inject manually without first inspecting local task state; this prevents duplicate prompts.
+Inspect a task with `GET /diagnostics/push/{task_id}` or run `tax push-doctor` on the Mac. Task `status` values beyond `pending`/`expired` belong to the removed reply pipeline and are not used by current clients.
+
+Notifications are fire-and-forget: if the backend is down when an agent finishes, the push is not replayed later. Send a new notification after the backend recovers.
 
 ## Backend outage
 
 1. Check `GET /health` with the bearer credential.
 2. Check service and reverse-proxy logs.
 3. Verify the SQLite filesystem is writable and has free space.
-4. Restart the service only after preserving logs. The Mac agent recovers replies after backend recovery while the 30-minute reply window remains open.
-5. Confirm pending replies with `GET /replies`; do not submit them manually unless the local agent state has been inspected.
+4. Restart the service only after preserving logs.
+5. Verify delivery with `tax push-doctor` once the service is healthy.
 
 ## APNs failures
 
@@ -28,7 +29,7 @@
 - `429`: reduce retries and respect APNs backoff.
 - Sandbox tokens require the development APNs host; TestFlight uses production.
 
-Never paste API keys, provider JWTs, full device tokens, context or reply text into tickets or logs.
+Never paste API keys, provider JWTs, full device tokens, context or message text into tickets or logs.
 
 ## SQLite backup and restore
 
@@ -46,7 +47,7 @@ Restore only while the service is stopped, retain the previous database, then ru
 1. Generate the replacement credential.
 2. Update backend secret storage and restart/reload.
 3. Update Mac and iOS clients.
-4. Verify `/health`, create a test task and complete one reply flow.
+4. Verify `/health` and confirm `tax push-doctor` reports `APNs result: sent`.
 5. Revoke the old credential.
 
 APNs `.p8` files must be mode `0600`, outside Git, and rotated independently from `TAX_API_KEY`.

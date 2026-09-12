@@ -8,7 +8,7 @@
 - [ ] Target explicitly confirmed as test, not production
 - [ ] No `.env`, `.p8`, API key, device token or user content in artifacts/logs
 - [ ] Backend health verified after deployment, if backend changed
-- [ ] One create-task → reply → delivered smoke flow completed
+- [ ] `tax push-doctor` reported `APNs result: sent` on a physical device
 - [ ] Release report records SHA, version, destination and result
 
-See `ios/QUALITY_AUTOMATION_PLAN.md` for the iOS/APNs test-device checklist.
+See `ios/APNS_SMOKE_CHECKLIST.md` for the physical-device APNs checklist.

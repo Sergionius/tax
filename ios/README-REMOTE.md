@@ -16,7 +16,7 @@ Using a live Orca terminal session on a physical iPhone, verify the only bundled
 2. Create substantial scrollback and verify smooth scrolling and a stable position while output arrives.
 3. Type rapidly and verify that input is neither delayed nor duplicated.
 4. Open the keyboard and verify that the active prompt remains visible; close it and verify the viewport recovers.
-5. Run Pi in its alternate screen and verify that the TUI renders and accepts input correctly.
+5. Run a TUI program such as `pi` or `vim` in its alternate screen and verify that it renders and accepts input correctly.
 6. Reconnect and verify that the screen is restored from the new snapshot without mixing generations.
 
 Development validation:

@@ -1,6 +1,6 @@
 # tax iOS
 
-SwiftUI-клиент для просмотра задач `tax`, навигации из APNs и отправки reply.
+SwiftUI-клиент удалённых Orca workspace: терминалы, файлы, настройки и навигация из push-уведомлений агентов (pi, Claude Code, Codex).
 
 - iOS 17+
 - Swift 6, strict concurrency
