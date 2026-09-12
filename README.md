@@ -1,13 +1,13 @@
 # tax (Task Agent eXchange) — remote Orca workspace for iPhone
 
-`tax` позволяет с iPhone подключаться к открытым workspace и терминалам Orca на Mac через зашифрованный relay. Приложение показывает ANSI/TUI-вывод, отправляет ввод в выбранный PTY, создаёт и закрывает терминалы, запускает `pi`, а также позволяет безопасно просматривать и редактировать файлы workspace.
+`tax` позволяет с iPhone подключаться к открытым workspace и терминалам Orca на Mac через зашифрованный relay. Приложение показывает ANSI/TUI-вывод, отправляет ввод в выбранный PTY, создаёт и закрывает терминалы, запускает консольных агентов (pi, Claude Code, Codex) и любые CLI-программы, а также позволяет безопасно просматривать и редактировать файлы workspace.
 
 ## Screenshots
 
 <table>
   <tr>
     <td align="center"><img src="docs/images/workspaces.png" width="280" alt="Remote workspace list"><br><sub>Remote workspaces</sub></td>
-    <td align="center"><img src="docs/images/terminal.png" width="280" alt="Remote Pi terminal"><br><sub>Pi terminal</sub></td>
+    <td align="center"><img src="docs/images/terminal.png" width="280" alt="Remote agent terminal"><br><sub>Agent terminal</sub></td>
   </tr>
   <tr>
     <td align="center"><img src="docs/images/files.png" width="280" alt="Workspace file browser"><br><sub>Workspace files</sub></td>
@@ -158,7 +158,7 @@ tax remote-host \
 1. Откройте workspace `main`.
 2. Откройте существующий терминал и проверьте ANSI/TUI-вывод.
 3. Создайте новый терминал кнопкой `+`.
-4. Введите `pi` и нажмите `enter`.
+4. Запустите агента, например `pi` или `claude`, и нажмите `enter`.
 5. Проверьте `Ctrl-C`, resize, rename и close.
 6. Откройте **Browse workspace files**, текстовый файл, Markdown preview и изображение.
 
@@ -179,12 +179,12 @@ tax push-doctor
 2. Создайте большой scrollback и проверьте прокрутку без скачков при новом output.
 3. Выполните быстрый input и убедитесь, что он не запаздывает и не дублируется.
 4. Откройте клавиатуру и проверьте, что активный prompt остаётся видимым.
-5. Запустите Pi/TUI в alternate screen и проверьте корректную работу.
+5. Запустите TUI-программу, например `pi` или `vim`, в alternate screen и проверьте корректную работу.
 6. Выполните reconnect и убедитесь, что экран восстанавливается из нового snapshot без смешивания generations.
 
 ## Push deep links
 
-Pi extension отправляет в push только routing identifiers: `host_id`, `workspace_id` и `terminal_id`. Для нестандартного Host ID задайте его в окружении Pi/Orca:
+Все интеграции агентов — Pi extension, Claude Code Stop hook и Codex `notify` — отправляют в push только routing identifiers: `host_id`, `workspace_id` и `terminal_id`. Для нестандартного Host ID задайте его в окружении агента:
 
 ```bash
 export TAX_HOST_ID=mac-main
