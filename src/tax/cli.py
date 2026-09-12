@@ -447,6 +447,12 @@ def cmd_push_doctor(args: argparse.Namespace) -> int:
     return 0 if accepted else 1
 
 
+def cmd_notify(args: argparse.Namespace) -> int:
+    from tax.agent_notifications import run_notification_hook
+
+    return run_notification_hook(args.provider, args.event_json)
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     config = load_config()
     server = get_server(config)
@@ -540,6 +546,12 @@ def main() -> int:
     p_push_doctor = subparsers.add_parser("push-doctor", help="Test backend-to-APNs push delivery")
     p_push_doctor.add_argument("--timeout", type=int, default=15, help="Seconds to wait for the APNs result")
     p_push_doctor.set_defaults(func=cmd_push_doctor)
+
+    # notify
+    p_notify = subparsers.add_parser("notify", help="Handle a Claude Code or Codex completion event")
+    p_notify.add_argument("provider", choices=("claude", "codex"))
+    p_notify.add_argument("event_json", nargs="?", help="Hook event JSON (defaults to stdin)")
+    p_notify.set_defaults(func=cmd_notify)
 
     # status
     p_status = subparsers.add_parser("status", help="List recent tasks on backend")
