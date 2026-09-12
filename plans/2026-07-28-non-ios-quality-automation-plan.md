@@ -25,7 +25,7 @@
 - 24 Python-теста проходят;
 - `ruff check server src tests` проходит;
 - GitHub Actions отсутствует;
-- тесты хорошо покрывают отдельные сценарии backend и persistent reply agent, но нет полного автоматического сценария backend → reply agent → `agtermctl`;
+- тесты хорошо покрывают отдельные сценарии backend;
 - `server/main.py` объединяет API, SQLite и APNs;
 - используется большое количество `print`, а структурированного логирования и общих correlation ID нет;
 - test suite выводит предупреждение о deprecated-интеграции Starlette `TestClient`/httpx;
@@ -34,10 +34,9 @@
 ## Цели
 
 1. Проверять каждый PR без участия тестировщика.
-2. Автоматически воспроизводить критический reply flow и recovery-сценарии.
-3. Улучшить диагностику production-проблем без утечки секретов.
-4. Упростить подготовку тестовых релизов.
-5. Сначала зафиксировать поведение тестами, затем выполнять рефакторинг.
+2. Улучшить диагностику production-проблем без утечки секретов.
+3. Упростить подготовку тестовых релизов.
+4. Сначала зафиксировать поведение тестами, затем выполнять рефакторинг.
 
 ## Не входит в этот план
 
@@ -73,7 +72,9 @@ pytest -q
 
 ```bash
 tax --help
-tax agent --help
+tax notify --help
+tax run --help
+tax remote-host --help
 ```
 
 - Проверить, что пакет не зависит от файлов рабочей директории.
@@ -87,45 +88,7 @@ tax agent --help
 
 **Критерий готовности:** CI обязателен для merge в `main`, а локальные команды совпадают с командами CI.
 
-## Этап 2. Интеграционный reply-flow — P0
-
-Создать integration tests, которые поднимают временный backend и используют временные SQLite-файлы.
-
-### 2.1. Основной сценарий
-
-1. Зарегистрировать устройство с fake token.
-2. Создать задачу через `/push`, подменив APNs sender.
-3. Отправить reply через `/task/{id}/reply`.
-4. Запустить один цикл polling Mac agent.
-5. Подменить `agtermctl` безопасным fake executable.
-6. Проверить точный target, stdin и завершающий newline.
-7. Проверить локальный статус `delivered`.
-8. Проверить, что `/replies` больше не возвращает задачу.
-
-### 2.2. Recovery-сценарии
-
-Автоматизировать:
-
-- backend недоступен, затем восстановлен;
-- agent остановлен после сохранения reply, затем перезапущен;
-- Mac выходит из сна условной паузой polling;
-- локальная fallback JSONL содержит полную строку, partial line и повреждённую запись;
-- один task получен одновременно из fallback и backend;
-- повторный backend response не вызывает повторную доставку;
-- `agtermctl` временно падает;
-- agterm session закрыта и задача получает терминальный `delivery_failed`;
-- ошибка обновления backend после успешного локального ввода не приводит к повторному вводу текста.
-
-Последний сценарий особенно важен: доставка reply должна быть идемпотентной с точки зрения пользователя.
-
-### 2.3. Границы теста
-
-- Не обращаться к настоящему APNs.
-- Не использовать настоящий agterm session.
-- Не использовать production URL.
-- Каждый тест должен укладываться в несколько секунд; polling intervals внедрять или уменьшать через настройки.
-
-## Этап 3. Дополнение unit-тестов — P0
+## Этап 2. Дополнение unit-тестов — P0
 
 ### Backend
 
@@ -133,9 +96,7 @@ tax agent --help
 
 - отсутствующий и неверный Authorization header;
 - limits/offset для `/tasks`;
-- неизвестный task ID для get/update/reply;
-- пустой и слишком большой reply;
-- конкурентная отправка двух reply;
+- неизвестный task ID;
 - APNs 400/403/410/429/500 и network timeout;
 - выбор sandbox/production host;
 - invalid/missing APNs configuration;
@@ -144,18 +105,6 @@ tax agent --help
 
 Перед ограничением размеров payload согласовать лимиты и добавить их как явный API contract.
 
-### Mac agent
-
-Добавить проверки:
-
-- lifecycle фоновых потоков;
-- bounded worker count под нагрузкой;
-- корректный shutdown во время HTTP/polling операции;
-- cleanup terminal records старше retention period;
-- недоступный `agtermctl`;
-- классификация retryable и terminal delivery errors;
-- отсутствие API key и полного reply в ошибках.
-
 ### CLI
 
 Добавить отдельный `tests/test_cli.py`:
@@ -163,22 +112,19 @@ tax agent --help
 - приоритет CLI config/environment/defaults;
 - `tax config` без вывода API key;
 - `tax run` для success, command failure и backend failure;
-- detach mode;
-- timeout ожидания reply;
-- `tax status` и невалидный ответ backend;
-- отсутствующий `agtermctl`.
+- `tax status` и невалидный ответ backend.
 
-## Этап 4. Наблюдаемость и безопасные логи — P0
+## Этап 3. Наблюдаемость и безопасные логи — P0
 
-### 4.1. Структурированное логирование
+### 3.1. Структурированное логирование
 
 - Перейти с `print` на стандартный `logging`.
 - Использовать единые поля: component, event, task_id, session_id, status, duration_ms, attempt.
 - В production поддержать JSON-формат; локально оставить читаемый текстовый formatter.
 - Назначать request ID, принимать его из заголовка или генерировать на backend.
-- Прокидывать task ID через backend и agent events.
+- Прокидывать task ID через backend events.
 
-### 4.2. Редакция чувствительных данных
+### 3.2. Редакция чувствительных данных
 
 Никогда не логировать:
 
@@ -189,15 +135,15 @@ tax agent --help
 
 Допустимы boolean-флаги, длины, task ID и короткий необратимый fingerprint device token. Удалить подробные debug-сообщения после появления структурированных событий.
 
-### 4.3. Health и диагностика
+### 3.3. Health и диагностика
 
 - `/health`: жив ли процесс и доступна ли БД.
 - Отдельная readiness-проверка при необходимости deployment orchestration.
 - Логировать результат APNs с категорией ответа и `apns-id`, не записывая секреты.
-- Добавить счётчики на уровне логов: tasks created, pushes skipped/sent/failed, replies pending/delivered/failed.
+- Добавить счётчики на уровне логов: tasks created, pushes queued/skipped/sent/failed.
 - Не внедрять тяжёлый metrics stack, пока нет потребителя метрик.
 
-## Этап 5. Устранение предупреждений и зависимости — P1
+## Этап 4. Устранение предупреждений и зависимости — P1
 
 - Разобраться с предупреждением Starlette `TestClient`/httpx: обновить совместимые версии либо перейти на рекомендованный transport/test client.
 - Зафиксировать прямые runtime dependencies в одном источнике истины; проверить необходимость дублирования `pyproject.toml` и `server/requirements.txt`.
@@ -205,7 +151,7 @@ tax agent --help
 - Для dependency PR обязательно запускать полный CI.
 - Проверить минимальную Python 3.11 и выбранную production-версию отдельно.
 
-## Этап 6. Безопасный рефакторинг backend — P1
+## Этап 5. Безопасный рефакторинг backend — P1
 
 Начинать только после этапов 1–4 и без изменения API contract.
 
@@ -230,7 +176,7 @@ server/
 - APNs HTTP client и clock передавать как зависимости для deterministic tests.
 - Не добавлять ORM: для текущего объёма это необязательная сложность.
 
-## Этап 7. Release preflight и тестовые релизы — P1
+## Этап 6. Release preflight и тестовые релизы — P1
 
 Добавить единую локальную команду, например `scripts/preflight.sh`, которая:
 
@@ -249,15 +195,14 @@ server/
 - production endpoint и production upload требуют явного выбора;
 - после отправки сохраняется краткий отчёт: commit SHA, версия, каналы доставки и результат.
 
-## Этап 8. Документация и runbooks — P1
+## Этап 7. Документация и runbooks — P1
 
 Обновить или создать:
 
 - `README.md`: актуальные install/run/test команды;
-- troubleshooting для backend, LaunchAgent и reply delivery;
+- troubleshooting для backend и LaunchAgent;
 - runbook восстановления после недоступности VPS;
 - runbook APNs 400/403/410;
-- схема статусов задачи и допустимые переходы;
 - инструкция ротации TAX API key и APNs key;
 - backup/restore SQLite с проверкой восстановления;
 - release checklist со ссылкой на отдельный iOS plan.
@@ -271,14 +216,12 @@ server/
 1. Python CI и packaging smoke-test.
 2. Repository/secret checks.
 3. CLI unit-тесты.
-4. Основной integration reply-flow.
 
 ### Итерация 2
 
-1. Recovery и идемпотентность.
-2. Структурированные безопасные логи.
-3. APNs/backend error tests.
-4. Устранение dependency warning.
+1. Структурированные безопасные логи.
+2. APNs/backend error tests.
+3. Устранение dependency warning.
 
 ### Итерация 3
 
@@ -290,8 +233,6 @@ server/
 
 - Каждый PR автоматически проверяется CI.
 - Wheel устанавливается и CLI запускается в чистом окружении.
-- Критический reply-flow и recovery после restart покрыты integration tests.
-- Повторный polling не дублирует ввод reply в agterm.
 - Логи позволяют найти путь задачи по task ID и не содержат секретов.
 - Есть одна preflight-команда перед тестовой сборкой/релизом.
 - Документированы статусы, восстановление, backup и ротация ключей.

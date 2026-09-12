@@ -52,7 +52,7 @@ tax remote-host \
   --orca-pairing-code-file ~/.config/tax/orca-pairing
 ```
 
-`tax-agent` reads the tax encryption key from macOS Keychain, connects as the host role, and exposes only tax-owned protocol messages. Workspace and terminal inventory, create/rename/close, input, resize, snapshots, and incremental output are translated by `RemoteHost`; Orca-private values remain in `OrcaRuntimeAdapter`. Terminal subscriptions use the mobile client semantics and the initial viewport supplied by the device; the tax protocol does not expose the underlying Orca subscription framing.
+The `tax remote-host` process reads the tax encryption key from macOS Keychain, connects as the host role, and exposes only tax-owned protocol messages. Workspace and terminal inventory, create/rename/close, input, resize, snapshots, and incremental output are translated by `RemoteHost`; Orca-private values remain in `OrcaRuntimeAdapter`. Terminal subscriptions use the mobile client semantics and the initial viewport supplied by the device; the tax protocol does not expose the underlying Orca subscription framing.
 
 Before iOS is available, validate the full encrypted path with:
 
