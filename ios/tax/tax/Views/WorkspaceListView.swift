@@ -25,9 +25,6 @@ struct WorkspaceListView: View {
             }
             .workspaceScreenTheme()
             .workspaceScreenBackground()
-            .navigationTitle("Orca")
-            .navigationBarTitleDisplayMode(.inline)
-            .workspacePrincipalTitle("Orca")
             .navigationDestination(for: RemoteNavigationRoute.self) { route in
                 switch route {
                 case let .workspace(workspace): WorkspaceView(workspace: workspace)
@@ -35,8 +32,16 @@ struct WorkspaceListView: View {
                 }
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Text("tax")
+                        .font(.workspaceUI(.title2, weight: .semibold))
+                        .foregroundStyle(WorkspaceTheme.textHi)
+                }
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    // Отступ слева: капсула тулбара охватывает группу целиком,
+                    // без него индикатор прижат к левому краю несимметрично.
                     WorkspaceConnectionIndicator(state: store.connectionState)
+                        .padding(.leading, 8)
                     NavigationLink(destination: SettingsView()) {
                         Image(systemName: "gear")
                             .font(.workspaceUI(.body, weight: .medium))
@@ -112,10 +117,16 @@ struct WorkspaceListView: View {
     }
 }
 
-/// Карточка workspace в списке: название, проект, ветка, путь, число терминалов
-/// и существующий статус агента. Активность различается только оформлением.
+/// Карточка workspace в списке: наверху название проекта, под ним ветка,
+/// путь, число терминалов и существующий статус агента.
+/// Активность различается только оформлением.
 private struct WorkspaceListCard: View {
     let workspace: RemoteWorkspace
+
+    /// Наверху карточки — название проекта; displayName используется как fallback.
+    private var cardTitle: String {
+        workspace.projectName.isEmpty ? workspace.displayName : workspace.projectName
+    }
 
     private var branchName: String {
         workspace.branch.replacingOccurrences(of: "refs/heads/", with: "")
@@ -129,34 +140,19 @@ private struct WorkspaceListCard: View {
         HStack(spacing: 12) {
             WorkspaceActiveBar(isActive: workspace.isVisuallyActive)
             VStack(alignment: .leading, spacing: 7) {
-                Text(workspace.displayName)
+                Text(cardTitle)
                     .font(.workspaceUI(.headline, weight: .semibold))
                     .foregroundStyle(WorkspaceTheme.textHi)
                     .lineLimit(1)
-                if !workspace.projectName.isEmpty || !branchName.isEmpty {
-                    HStack(spacing: 10) {
-                        if !workspace.projectName.isEmpty {
-                            HStack(spacing: 4) {
-                                Image(systemName: "book.closed")
-                                    .font(.workspaceUI(.caption2, weight: .medium))
-                                    .foregroundStyle(symbolColor)
-                                Text(workspace.projectName)
-                                    .font(.workspaceUI(.caption, weight: .medium))
-                                    .foregroundStyle(WorkspaceTheme.textLo)
-                                    .lineLimit(1)
-                            }
-                        }
-                        if !branchName.isEmpty {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.triangle.branch")
-                                    .font(.workspaceUI(.caption2, weight: .medium))
-                                    .foregroundStyle(symbolColor)
-                                Text(branchName)
-                                    .font(.workspaceMono(.caption))
-                                    .foregroundStyle(WorkspaceTheme.textLo)
-                                    .lineLimit(1)
-                            }
-                        }
+                if !branchName.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.workspaceUI(.caption2, weight: .medium))
+                            .foregroundStyle(symbolColor)
+                        Text(branchName)
+                            .font(.workspaceMono(.caption))
+                            .foregroundStyle(WorkspaceTheme.textLo)
+                            .lineLimit(1)
                     }
                 }
                 Text(workspace.path)
@@ -227,11 +223,10 @@ struct WorkspaceConnectionIndicator: View {
 }
 
 private extension RemoteWorkspace {
-    /// Активность для оформления: существующий статус агента, отличный от idle.
-    /// Источник данных и подписи статусов не меняются — только визуальное различение.
+    /// Приглушённое оформление — только для статуса "inactive".
+    /// В любом другом случае карточка обычная, с яркой полосой и бейджем.
     var isVisuallyActive: Bool {
-        let normalized = agentState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return !normalized.isEmpty && normalized != "idle"
+        agentState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "inactive"
     }
 }
 

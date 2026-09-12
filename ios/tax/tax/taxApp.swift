@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct TaxApp: App {
@@ -24,7 +25,11 @@ struct TaxApp: App {
                 .onChange(of: settingsStore.e2eeKey) { _, _ in remoteStore.disconnect() }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
-                    case .active: Swift.Task { await remoteStore.resume(settings: settingsStore) }
+                    case .active:
+                        // Любой запуск или возврат к уже запущенному приложению:
+                        // сбрасываем счётчик на иконке.
+                        Swift.Task { try? await UNUserNotificationCenter.current().setBadgeCount(0) }
+                        Swift.Task { await remoteStore.resume(settings: settingsStore) }
                     case .background: remoteStore.suspend()
                     default: break
                     }

@@ -243,6 +243,19 @@ extension View {
         }
     }
 
+    /// Локальный заголовок панели навигации, прижатый к левому краю
+    /// (крупный текст Space Grotesk); оформление не выходит за пределы экрана.
+    func workspaceLeadingTitle(_ title: String) -> some View {
+        toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Text(title)
+                    .font(.workspaceUI(.title2, weight: .semibold))
+                    .foregroundStyle(WorkspaceTheme.textHi)
+                    .lineLimit(1)
+            }
+        }
+    }
+
     /// Тёмный фон экрана `bg` на всю площадь, включая safe areas.
     /// Применяется к содержимому конкретного экрана вместе с `workspaceScreenTheme()`.
     func workspaceScreenBackground() -> some View {

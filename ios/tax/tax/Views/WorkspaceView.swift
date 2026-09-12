@@ -11,6 +11,11 @@ struct WorkspaceView: View {
 
     private var terminals: [RemoteTerminal]? { store.terminals[workspace.id] }
 
+    /// Наверху экрана — название проекта; displayName используется как fallback.
+    private var screenTitle: String {
+        workspace.projectName.isEmpty ? workspace.displayName : workspace.projectName
+    }
+
     var body: some View {
         List {
             terminalsSection
@@ -19,9 +24,9 @@ struct WorkspaceView: View {
         .listStyle(.plain)
         .workspaceScreenTheme()
         .workspaceScreenBackground()
-        .navigationTitle(workspace.displayName)
+        .navigationTitle(screenTitle)
         .navigationBarTitleDisplayMode(.inline)
-        .workspacePrincipalTitle(workspace.displayName)
+        .workspacePrincipalTitle(screenTitle)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -123,12 +128,14 @@ struct WorkspaceView: View {
     }
 }
 
-/// Карточка терминальной сессии: подключённые сессии яркие, отключённые — приглушённые.
+/// Карточка терминальной сессии: яркая акцентная полоса слева — только
+/// у активных (подключённых) сессий, у отключённых — приглушённая.
 private struct TerminalSessionCard: View {
     let terminal: RemoteTerminal
 
     var body: some View {
         HStack(spacing: 12) {
+            WorkspaceActiveBar(isActive: terminal.connected)
             Image(systemName: terminal.connected ? "terminal.fill" : "terminal")
                 .font(.workspaceUI(.title3))
                 .foregroundStyle(terminal.connected ? WorkspaceTheme.accent : WorkspaceTheme.accentDim)
