@@ -4,7 +4,8 @@ import os
 import sqlite3
 import time
 import uuid
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
@@ -26,6 +27,9 @@ except ModuleNotFoundError:  # Standalone deployment runs with server/ as the wo
 DB_PATH = os.environ.get("TAX_DB_PATH", "/data/tax.db")
 API_KEY = os.environ.get("TAX_API_KEY", "")
 DEFAULT_REMOTE_HOST_ID = os.environ.get("TAX_REMOTE_HOST_ID", "mac-main")
+# Agent content storage is opt-in; retention maintenance runs hourly.
+DEFAULT_TASK_RETENTION_DAYS = 7
+TASK_RETENTION_INTERVAL_SECONDS = 3600
 
 # Public history projection for GET task/tasks: hides device_token and the legacy status/reply columns.
 TASK_HISTORY_COLUMNS = (
@@ -59,14 +63,69 @@ def require_api_key(credentials: HTTPAuthorizationCredentials = Depends(security
     return token
 
 
+def agent_content_storage_enabled() -> bool:
+    """Opt-in flag for storing agent context/logs; only the exact value "1" enables it."""
+    return os.environ.get("TAX_STORE_AGENT_CONTENT", "") == "1"
+
+
+def resolve_content_settings() -> tuple[bool, int]:
+    """Resolve content-storage and retention settings at startup.
+
+    Raises ValueError when TAX_TASK_RETENTION_DAYS is not a positive integer;
+    the lifespan turns this into a startup failure.
+    """
+    store_content = agent_content_storage_enabled()
+    raw_days = os.environ.get("TAX_TASK_RETENTION_DAYS", "").strip()
+    if not raw_days:
+        return store_content, DEFAULT_TASK_RETENTION_DAYS
+    try:
+        retention_days = int(raw_days)
+    except ValueError as error:
+        raise ValueError(f"TAX_TASK_RETENTION_DAYS must be a positive integer, got {raw_days!r}") from error
+    if retention_days <= 0:
+        raise ValueError(f"TAX_TASK_RETENTION_DAYS must be a positive integer, got {raw_days!r}")
+    return store_content, retention_days
+
+
 def init_db():
     storage.initialize(DB_PATH)
 
 
+async def retention_loop(retention_days: int) -> None:
+    """Hourly retention cleanup between short-lived connections.
+
+    Periodic failures are logged without content and retried on the next
+    iteration; the loop only ends when cancelled at shutdown.
+    """
+    while True:
+        await asyncio.sleep(TASK_RETENTION_INTERVAL_SECONDS)
+        try:
+            deleted = storage.run_retention_cleanup(DB_PATH, retention_days=retention_days)
+        except Exception as error:
+            log_event(logger, "task_retention_failed", level=logging.ERROR, error=str(error))
+            continue
+        log_event(logger, "task_retention_cleanup", level=logging.DEBUG, deleted=deleted)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Invalid configuration must fail startup before the database is touched.
+    store_content, retention_days = resolve_content_settings()
     init_db()
-    yield
+    # Startup maintenance (content purge + retention delete); a failure here
+    # is a startup failure.
+    try:
+        storage.run_startup_cleanup(DB_PATH, store_agent_content=store_content, retention_days=retention_days)
+    except Exception as error:
+        log_event(logger, "startup_cleanup_failed", level=logging.ERROR, error=str(error))
+        raise
+    app.state.retention_task = asyncio.create_task(retention_loop(retention_days))
+    try:
+        yield
+    finally:
+        app.state.retention_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await app.state.retention_task
 
 
 app = FastAPI(title="tax — Task Agent eXchange", lifespan=lifespan)
@@ -269,6 +328,14 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
         push_mode=mode,
     )
 
+    # Storage policy applies to the database only: title/body, routing fields
+    # and push diagnostics are always stored, while context/logs are kept as
+    # empty strings unless content storage is explicitly opted into.
+    if agent_content_storage_enabled():
+        stored_context, stored_logs = payload.context, payload.logs
+    else:
+        stored_context, stored_logs = "", ""
+
     conn = db_conn()
     try:
         conn.execute(
@@ -282,8 +349,8 @@ async def push(payload: PushPayload, background_tasks: BackgroundTasks):
                 device_token or "",
                 payload.title,
                 payload.body,
-                payload.context,
-                payload.logs,
+                stored_context,
+                stored_logs,
                 payload.source,
                 payload.agent,
                 payload.app,

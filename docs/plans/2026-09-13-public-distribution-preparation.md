@@ -217,18 +217,28 @@
 - Modify: `server/docker-compose.yml`
 - Modify: `tests/test_server.py`
 
-- [ ] Добавить `TAX_STORE_AGENT_CONTENT`, выключенный по умолчанию; opt-in значение — `1`.
-- [ ] Добавить `TAX_TASK_RETENTION_DAYS` с default `7`; принимать только положительное целое число, ошибочную настройку отклонять при startup.
-- [ ] При выключенном content storage сохранять `context/logs` как пустые строки. Сохранять API response shape, `title/body`, routing и push diagnostics.
-- [ ] При startup очищать `context/logs` существующих записей, если content storage выключен.
-- [ ] Удалять tasks старше retention по `created_at` в UTC независимо от content-storage flag; не удалять device registrations и не менять legacy physical schema.
-- [ ] Выполнять cleanup при startup и затем каждый час через управляемую lifespan background task; корректно завершать её при shutdown.
-- [ ] Ограничить scope транзакций и не держать SQLite connection между периодическими итерациями.
-- [ ] Ошибку startup cleanup считать ошибкой запуска; периодические ошибки логировать без content и повторять на следующем цикле.
-- [ ] Не менять APNs payload, notification adapters или HTTPS transport: запрет сохранения не означает запрет передачи `context/logs` backend.
-- [ ] Обновить существующие migration tests с учётом согласованной очистки старых данных.
-- [ ] Добавить проверки default/opt-in, очистки старого content, retention boundary, UTC timestamps, сохранения device registrations, startup/shutdown cleanup и неизменности APNs preview.
-- [ ] Проверять storage на временной SQLite базе и APNs через существующие stubs; рабочую базу не открывать.
+- [x] Добавить `TAX_STORE_AGENT_CONTENT`, выключенный по умолчанию; opt-in значение — `1`.
+- [x] Добавить `TAX_TASK_RETENTION_DAYS` с default `7`; принимать только положительное целое число, ошибочную настройку отклонять при startup.
+- [x] При выключенном content storage сохранять `context/logs` как пустые строки. Сохранять API response shape, `title/body`, routing и push diagnostics.
+- [x] При startup очищать `context/logs` существующих записей, если content storage выключен.
+- [x] Удалять tasks старше retention по `created_at` в UTC независимо от content-storage flag; не удалять device registrations и не менять legacy physical schema.
+- [x] Выполнять cleanup при startup и затем каждый час через управляемую lifespan background task; корректно завершать её при shutdown.
+- [x] Ограничить scope транзакций и не держать SQLite connection между периодическими итерациями.
+- [x] Ошибку startup cleanup считать ошибкой запуска; периодические ошибки логировать без content и повторять на следующем цикле.
+- [x] Не менять APNs payload, notification adapters или HTTPS transport: запрет сохранения не означает запрет передачи `context/logs` backend.
+- [x] Обновить существующие migration tests с учётом согласованной очистки старых данных.
+- [x] Добавить проверки default/opt-in, очистки старого content, retention boundary, UTC timestamps, сохранения device registrations, startup/shutdown cleanup и неизменности APNs preview.
+- [x] Проверять storage на временной SQLite базе и APNs через существующие stubs; рабочую базу не открывать.
+
+### Task 5 execution notes
+
+- `server/main.py`: `TAX_STORE_AGENT_CONTENT` — opt-in строго со значением `1` (`agent_content_storage_enabled`, любой другой токен/отсутствие = выключено); `TAX_TASK_RETENTION_DAYS` — default `7`, только положительное целое (`resolve_content_settings` читает окружение при startup, ошибка парсинга или `<= 0` даёт `ValueError` и отказ запуска до обращения к БД). Push endpoint при выключенном storage сохраняет `context`/`logs` пустыми строками; `title/body`, routing-поля, push diagnostics и shape API-ответов (ключи `context`/`logs` остаются) не изменились.
+- `server/storage.py`: `purge_agent_content` (startup-очистка `context`/`logs` → `''` только у строк с содержимым или NULL), `delete_expired_tasks` (удаляет строго старше cutoff по `created_at`, нормализованный к UTC: offset- и naive-timestamps, нечитаемые значения сохраняются), `run_startup_cleanup` (одна короткая транзакция: purge при выключенном storage + retention; собственное соединение открывается и закрывается внутри), `run_retention_cleanup` (короткоживущее соединение и одна транзакция на вызов — между итерациями соединение не держится). Device registrations и физическая схема (включая legacy-колонки) не затрагиваются.
+- Lifespan: валидация настроек → `init_db` → startup cleanup (ошибка логируется без content и пробрасывается — запуск падает) → `retention_loop` (`TASK_RETENTION_INTERVAL_SECONDS = 3600`) через `asyncio.create_task`; задача хранится в `app.state.retention_task`, при shutdown отменяется и await'ится с подавлением `CancelledError`. Периодические ошибки логируются (`log_event` дополнительно маскирует ключи `context`/`logs`) и повторяются на следующем цикле.
+- APNs payload, `server/apns.py`, relay и модель `PushPayload` не менялись (git diff по ним пуст): запрет хранения не влияет на передачу `context/logs` backend по HTTPS и на доставку push.
+- `server/.env.example` и `server/docker-compose.yml`: задокументированы `TAX_STORE_AGENT_CONTENT` (default 0) и `TAX_TASK_RETENTION_DAYS` (default 7); Compose прокидывает обе переменные с этими defaults.
+- Тесты: migration test обновлён под согласованную очистку — legacy-строка получает недавний `created_at` ( retention её больше не удаляет), при выключенном storage legacy `context/logs` очищаются, остальные legacy-значения и добавленные колонки нетронуты; отдельный тест сохранения legacy-content при opt-in. Добавлено 17 проверок: строгий opt-in `1`, default `(False, 7)` и парсинг `14`, default/opt-in хранение на уровне API и БД, startup-очистка/сохранение контента, retention через lifespan с настраиваемым сроком (3 дня), UTC-метки приложения, сохранение device registration, неизменность схемы до/после, детерминированный boundary на фиксированном `now` (строгое «старше», offset `+05:00`, naive = UTC), отказ запуска на 6 невалидных значениях retention, отмена retention-задачи при shutdown, переживание периодических ошибок без content в логах, неизменность APNs-доставки при выключенном storage. Все проверки — на временных SQLite базах и существующих APNs stubs; рабочая база не открывалась.
+- Валидация: `uv lock --check`; `uv sync --locked --extra dev`; `uv run --locked --extra dev ruff check server src tests`; `uv run --locked --extra dev pytest -q` — 182 passed (165 на базовом коммите + 17 новых; единственный warning — существующий starlette/anyio DeprecationWarning с базового коммита); `git diff --check`. npm-/Xcode-/контейнерные проверки к файлам задачи не применимы (контейнерная — CI `container` job вне этой задачи).
 
 ### Task 6: Добавить лицензирование и нормализовать App Icon
 

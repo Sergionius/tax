@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 
 def connect(path: str) -> sqlite3.Connection:
@@ -79,5 +80,86 @@ def initialize(path: str) -> None:
         )
         _add_missing_columns(conn, "device_tokens", {"preferences": "TEXT"})
         conn.commit()
+    finally:
+        conn.close()
+
+
+def _parse_utc(value: str | None) -> datetime | None:
+    """Parse a task timestamp and normalize it to UTC; None when unparseable."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def purge_agent_content(conn: sqlite3.Connection) -> int:
+    """Replace stored context/logs with empty strings; returns rows changed."""
+    cursor = conn.execute(
+        "UPDATE tasks SET context = '', logs = '' "
+        "WHERE IFNULL(context, '') != '' OR IFNULL(logs, '') != ''"
+    )
+    return cursor.rowcount
+
+
+def delete_expired_tasks(
+    conn: sqlite3.Connection, retention_days: int, *, now: datetime | None = None
+) -> int:
+    """Delete tasks whose created_at (UTC) is strictly older than the retention window.
+
+    Device registrations and the physical schema are left untouched. Rows with
+    unparseable timestamps are kept rather than guessed about.
+    """
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=retention_days)
+    rows = conn.execute("SELECT id, created_at FROM tasks").fetchall()
+    expired = []
+    for row in rows:
+        created = _parse_utc(row["created_at"])
+        if created is not None and created < cutoff:
+            expired.append((row["id"],))
+    if expired:
+        conn.executemany("DELETE FROM tasks WHERE id = ?", expired)
+    return len(expired)
+
+
+def run_startup_cleanup(
+    path: str,
+    *,
+    store_agent_content: bool,
+    retention_days: int,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    """Startup maintenance in a single short transaction.
+
+    Purges stored agent content when storage is disabled and deletes tasks
+    beyond the retention window. Opens and closes its own connection; raises
+    on failure so callers can treat it as a startup error.
+    """
+    conn = connect(path)
+    try:
+        with conn:
+            purged = 0 if store_agent_content else purge_agent_content(conn)
+            deleted = delete_expired_tasks(conn, retention_days, now=now)
+        return {"purged_tasks": purged, "deleted_tasks": deleted}
+    finally:
+        conn.close()
+
+
+def run_retention_cleanup(
+    path: str, *, retention_days: int, now: datetime | None = None
+) -> int:
+    """Periodic retention cleanup.
+
+    Uses a short-lived connection and a single transaction per call so no
+    connection is held between periodic iterations. Returns deleted rows.
+    """
+    conn = connect(path)
+    try:
+        with conn:
+            return delete_expired_tasks(conn, retention_days, now=now)
     finally:
         conn.close()

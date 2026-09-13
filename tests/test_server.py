@@ -1,19 +1,32 @@
 import asyncio
 import json
 import sqlite3
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
-from server import main
+from server import main, storage
 
 
 AUTH = {"Authorization": "Bearer test-key"}
 
 
-def make_client(monkeypatch, tmp_path: Path) -> TestClient:
+def recent_iso(days_ago: float = 1.0) -> str:
+    """Timestamp recent enough to survive the default retention window."""
+    return (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+
+
+def make_client(monkeypatch, tmp_path: Path, env: dict[str, str] | None = None) -> TestClient:
+    # Pin the default storage policy unless a test explicitly opts in.
+    monkeypatch.delenv("TAX_STORE_AGENT_CONTENT", raising=False)
+    monkeypatch.delenv("TAX_TASK_RETENTION_DAYS", raising=False)
     monkeypatch.setattr(main, "DB_PATH", str(tmp_path / "tax.db"))
     monkeypatch.setattr(main, "API_KEY", "test-key")
+    for key, value in (env or {}).items():
+        monkeypatch.setenv(key, value)
     return TestClient(main.app)
 
 
@@ -54,6 +67,9 @@ def stub_apns(monkeypatch, sent=None):
 
 def test_migrates_existing_database(monkeypatch, tmp_path):
     db_path = tmp_path / "old.db"
+    # Recent timestamps: retention cleanup must keep the legacy row so the
+    # additive-migration path stays observable.
+    legacy_timestamp = recent_iso()
     legacy_row = {
         "id": "legacy-1",
         "device_token": "legacy-secret",
@@ -63,8 +79,8 @@ def test_migrates_existing_database(monkeypatch, tmp_path):
         "context": "old context",
         "logs": "old logs",
         "reply": "old reply",
-        "created_at": "2026-01-01T00:00:00+00:00",
-        "updated_at": "2026-01-02T00:00:00+00:00",
+        "created_at": legacy_timestamp,
+        "updated_at": legacy_timestamp,
     }
     conn = sqlite3.connect(db_path)
     conn.execute(
@@ -111,7 +127,9 @@ def test_migrates_existing_database(monkeypatch, tmp_path):
     conn.close()
 
     # Additive migration keeps legacy columns and values untouched, even after GET requests.
-    assert {key: stored[key] for key in legacy_row} == legacy_row
+    # Coordinated startup cleanup: content storage is off by default, so the
+    # legacy context/logs are purged while every other legacy value survives.
+    assert {key: stored[key] for key in legacy_row} == {**legacy_row, "context": "", "logs": ""}
     assert stored["push_status"] is None
     assert {"source", "agent", "app", "orca_terminal_handle", "orca_worktree_id", "orca_tab_id", "orca_pane_key"} <= task_columns
     assert {"push_status", "push_attempted_at", "push_environment", "apns_status_code", "apns_reason", "apns_id"} <= task_columns
@@ -454,3 +472,292 @@ def test_apns_uses_sandbox_host_and_reports_reason(monkeypatch, tmp_path, caplog
     assert "Unregistered" in caplog.text
     assert "device-secret" not in caplog.text
     assert "provider-token" not in caplog.text
+
+
+def insert_task(db_path: Path, **overrides) -> None:
+    """Seed one task row with content and a retention-safe recent timestamp."""
+    values = {
+        "id": "seed-1",
+        "device_token": "seed-device-token",
+        "title": "seed title",
+        "body": "seed body",
+        "context": "seed context",
+        "logs": "seed logs",
+        "source": "seed-source",
+        "agent": "seed-agent",
+        "app": "tax",
+        "orca_terminal_handle": "seed-terminal",
+        "orca_worktree_id": "",
+        "orca_tab_id": "",
+        "orca_pane_key": "",
+        "push_status": "skipped",
+        "push_environment": "production",
+        "apns_reason": "device_token_missing",
+        "created_at": recent_iso(),
+        "updated_at": recent_iso(),
+    }
+    values.update(overrides)
+    conn = sqlite3.connect(db_path)
+    try:
+        columns = ", ".join(values)
+        placeholders = ", ".join(f":{key}" for key in values)
+        conn.execute(f"INSERT INTO tasks ({columns}) VALUES ({placeholders})", values)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def table_columns(db_path: Path, table: str) -> list[str]:
+    conn = sqlite3.connect(db_path)
+    try:
+        return [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+    finally:
+        conn.close()
+
+
+def stored_task(db_path: Path, task_id: str) -> sqlite3.Row:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        return conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    finally:
+        conn.close()
+
+
+def test_agent_content_flag_requires_exact_opt_in_value(monkeypatch):
+    for value in ["", "0", "false", "true", "yes", "on", " 1", "1 "]:
+        monkeypatch.setenv("TAX_STORE_AGENT_CONTENT", value)
+        assert main.agent_content_storage_enabled() is False
+    monkeypatch.setenv("TAX_STORE_AGENT_CONTENT", "1")
+    assert main.agent_content_storage_enabled() is True
+    monkeypatch.delenv("TAX_STORE_AGENT_CONTENT")
+    assert main.agent_content_storage_enabled() is False
+
+
+def test_resolve_content_settings_defaults_and_opt_in(monkeypatch):
+    monkeypatch.delenv("TAX_STORE_AGENT_CONTENT", raising=False)
+    monkeypatch.delenv("TAX_TASK_RETENTION_DAYS", raising=False)
+    assert main.resolve_content_settings() == (False, main.DEFAULT_TASK_RETENTION_DAYS)
+    assert main.TASK_RETENTION_INTERVAL_SECONDS == 3600
+    monkeypatch.setenv("TAX_STORE_AGENT_CONTENT", "1")
+    monkeypatch.setenv("TAX_TASK_RETENTION_DAYS", "14")
+    assert main.resolve_content_settings() == (True, 14)
+
+
+def test_content_storage_default_off_stores_empty_strings(monkeypatch, tmp_path):
+    stub_apns(monkeypatch)
+    with make_client(monkeypatch, tmp_path) as client:
+        register(client, "token", "all")
+        created = client.post(
+            "/push",
+            headers=AUTH,
+            json={
+                "device_token": "token",
+                "title": "done",
+                "body": "task finished",
+                "context": "secret context",
+                "logs": "secret logs",
+                "source": "pi-extension",
+                "agent": "pi",
+                "app": "tax",
+                "orca_terminal_handle": "session-123",
+            },
+        ).json()
+        task = client.get(f"/task/{created['task_id']}", headers=AUTH).json()["task"]
+
+    # API response shape is unchanged: context/logs keys stay present.
+    assert task["context"] == ""
+    assert task["logs"] == ""
+    assert task["title"] == "done"
+    assert task["body"] == "task finished"
+    assert task["source"] == "pi-extension"
+    assert task["agent"] == "pi"
+    assert task["app"] == "tax"
+    assert task["orca_terminal_handle"] == "session-123"
+    stored = stored_task(tmp_path / "tax.db", created["task_id"])
+    assert stored["context"] == ""
+    assert stored["logs"] == ""
+    assert stored["push_status"] == "queued"
+
+
+def test_content_storage_opt_in_stores_context_and_logs(monkeypatch, tmp_path):
+    stub_apns(monkeypatch)
+    with make_client(monkeypatch, tmp_path, env={"TAX_STORE_AGENT_CONTENT": "1"}) as client:
+        register(client, "token", "all")
+        created = client.post(
+            "/push",
+            headers=AUTH,
+            json={
+                "device_token": "token",
+                "title": "done",
+                "body": "task finished",
+                "context": "kept context",
+                "logs": "kept logs",
+                "app": "tax",
+            },
+        ).json()
+        task = client.get(f"/task/{created['task_id']}", headers=AUTH).json()["task"]
+
+    assert task["context"] == "kept context"
+    assert task["logs"] == "kept logs"
+    stored = stored_task(tmp_path / "tax.db", created["task_id"])
+    assert stored["context"] == "kept context"
+    assert stored["logs"] == "kept logs"
+
+
+def test_startup_clears_existing_content_when_storage_disabled(monkeypatch, tmp_path):
+    db_path = tmp_path / "tax.db"
+    monkeypatch.setattr(main, "DB_PATH", str(db_path))
+    monkeypatch.setattr(main, "API_KEY", "test-key")
+    main.init_db()
+    insert_task(db_path, id="old-1")
+    insert_task(db_path, id="old-2", logs="", context="only-context")
+
+    with TestClient(main.app):
+        pass
+
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute("SELECT id, context, logs FROM tasks ORDER BY id").fetchall()
+    finally:
+        conn.close()
+    assert rows == [("old-1", "", ""), ("old-2", "", "")]
+
+
+def test_startup_with_opt_in_preserves_existing_content(monkeypatch, tmp_path):
+    db_path = tmp_path / "tax.db"
+    monkeypatch.setattr(main, "DB_PATH", str(db_path))
+    monkeypatch.setattr(main, "API_KEY", "test-key")
+    monkeypatch.setenv("TAX_STORE_AGENT_CONTENT", "1")
+    main.init_db()
+    insert_task(db_path, id="kept-1")
+    insert_task(db_path, id="kept-2", context="", logs="")
+
+    with TestClient(main.app):
+        pass
+
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute("SELECT id, context, logs FROM tasks ORDER BY id").fetchall()
+    finally:
+        conn.close()
+    assert rows == [("kept-1", "seed context", "seed logs"), ("kept-2", "", "")]
+
+
+def test_retention_deletes_expired_tasks_and_keeps_devices(monkeypatch, tmp_path):
+    sent = []
+    stub_apns(monkeypatch, sent)
+    now = datetime.now(timezone.utc)
+    db_path = tmp_path / "tax.db"
+    client = make_client(monkeypatch, tmp_path, env={"TAX_TASK_RETENTION_DAYS": "3"})
+    main.init_db()
+    insert_task(db_path, id="expired", created_at=(now - timedelta(days=4)).isoformat(), updated_at=recent_iso())
+    insert_task(db_path, id="recent", created_at=(now - timedelta(days=2)).isoformat(), updated_at=recent_iso())
+    columns_before = table_columns(db_path, "tasks")
+
+    with client as active:
+        register(active, "device-token", "all")
+        created = push(active, "device-token").json()
+        tasks = active.get("/tasks", headers=AUTH).json()["tasks"]
+
+    assert {task["id"] for task in tasks} == {"recent", created["task_id"]}
+    # App-generated timestamps stay UTC-aware.
+    assert tasks[0]["created_at"].endswith("+00:00")
+    assert len(sent) == 1
+
+    conn = sqlite3.connect(db_path)
+    try:
+        tokens = conn.execute("SELECT token FROM device_tokens").fetchall()
+    finally:
+        conn.close()
+    assert tokens == [("device-token",)]
+    # Retention deletes rows only; the physical schema is unchanged.
+    assert table_columns(db_path, "tasks") == columns_before
+
+
+def test_retention_boundary_is_strict_and_uses_utc(tmp_path):
+    db_path = tmp_path / "boundary.db"
+    storage.initialize(db_path)
+
+    def seed(task_id: str, created_at: str):
+        insert_task(db_path, id=task_id, created_at=created_at, updated_at=created_at)
+
+    # Retention window: created_at strictly older than 2026-09-06 12:00 UTC.
+    seed("utc-expired", "2026-09-05T00:00:00+00:00")
+    seed("offset-expired", "2026-09-06T16:30:00+05:00")  # 11:00 UTC
+    seed("utc-boundary", "2026-09-06T12:00:00+00:00")  # == cutoff, kept
+    seed("offset-boundary", "2026-09-06T18:00:00+05:00")  # 13:00 UTC, kept
+    seed("naive-old", "2026-01-01T00:00:00")  # naive treated as UTC
+
+    now = datetime(2026, 9, 13, 12, 0, tzinfo=timezone.utc)
+    result = storage.run_startup_cleanup(db_path, store_agent_content=True, retention_days=7, now=now)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        remaining = {row[0] for row in conn.execute("SELECT id FROM tasks")}
+    finally:
+        conn.close()
+    assert result["deleted_tasks"] == 3
+    assert remaining == {"utc-boundary", "offset-boundary"}
+
+
+@pytest.mark.parametrize("value", ["abc", "0", "-3", "2.5", "7 days", "1e1"])
+def test_invalid_retention_days_rejected_at_startup(monkeypatch, tmp_path, value):
+    make_client(monkeypatch, tmp_path, env={"TAX_TASK_RETENTION_DAYS": value})
+    with pytest.raises(ValueError):
+        with TestClient(main.app):
+            pass
+
+
+def test_retention_task_cancels_on_shutdown(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path):
+        task = main.app.state.retention_task
+        assert not task.done()
+    assert task.done()
+    assert task.cancelled()
+
+
+def test_periodic_retention_survives_errors_without_logging_content(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(main, "TASK_RETENTION_INTERVAL_SECONDS", 0.01)
+    calls = []
+
+    def flaky_cleanup(path, *, retention_days, now=None):
+        calls.append((path, retention_days))
+        if len(calls) == 1:
+            raise sqlite3.OperationalError("simulated transient failure")
+        return 0
+
+    monkeypatch.setattr(main.storage, "run_retention_cleanup", flaky_cleanup)
+    with caplog.at_level("ERROR"):
+        with make_client(monkeypatch, tmp_path):
+            deadline = time.monotonic() + 5
+            while len(calls) < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+    assert calls == [(str(tmp_path / "tax.db"), 7), (str(tmp_path / "tax.db"), 7)]
+    assert "simulated transient failure" in caplog.text
+    assert "seed context" not in caplog.text
+    assert "seed logs" not in caplog.text
+
+
+def test_content_storage_off_does_not_change_apns_delivery(monkeypatch, tmp_path):
+    sent = []
+    stub_apns(monkeypatch, sent)
+    with make_client(monkeypatch, tmp_path) as client:
+        register(client, "token", "all")
+        client.post(
+            "/push",
+            headers=AUTH,
+            json={
+                "device_token": "token",
+                "title": "done",
+                "body": "task finished",
+                "context": "transmitted context",
+                "logs": "transmitted logs",
+                "app": "tax",
+            },
+        )
+
+    # Storage is off, but push transmission keeps the full alert payload.
+    assert len(sent) == 1
+    assert sent[0][1:3] == ("done", "task finished")

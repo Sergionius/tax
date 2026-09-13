@@ -10,7 +10,9 @@
 #
 # TAX_API_KEY, TAX_APNS_KEY_ID, TAX_APNS_TEAM_ID and TAX_APNS_BUNDLE_ID are
 # required; Compose fails fast when they are missing from the environment
-# file. TAX_APNS_USE_SANDBOX defaults to 0 (production APNs).
+# file. TAX_APNS_USE_SANDBOX defaults to 0 (production APNs). Optional
+# storage policy: TAX_STORE_AGENT_CONTENT (opt-in value: 1, default off) and
+# TAX_TASK_RETENTION_DAYS (default 7).
 
 services:
   tax:
@@ -29,4 +31,6 @@ services:
       - TAX_APNS_TEAM_ID=${TAX_APNS_TEAM_ID:?set TAX_APNS_TEAM_ID in the compose environment file}
       - TAX_APNS_BUNDLE_ID=${TAX_APNS_BUNDLE_ID:?set TAX_APNS_BUNDLE_ID in the compose environment file}
       - TAX_APNS_USE_SANDBOX=${TAX_APNS_USE_SANDBOX:-0}
+      - TAX_STORE_AGENT_CONTENT=${TAX_STORE_AGENT_CONTENT:-0}
+      - TAX_TASK_RETENTION_DAYS=${TAX_TASK_RETENTION_DAYS:-7}
     restart: unless-stopped
