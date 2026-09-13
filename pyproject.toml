@@ -33,8 +33,12 @@ dev = [
 tax = "tax.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
+
+[tool.uv]
+# Kept in sync with the uv version pinned in .github/workflows/python.yml.
+required-version = "==0.12.13"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tax"]

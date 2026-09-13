@@ -88,16 +88,29 @@
 - Modify: `scripts/preflight.sh`
 - Create: `uv.lock`
 
-- [ ] Использовать `pyproject.toml` как единственный источник прямых runtime/dev dependencies; сохранить существующий `dev` extra и поддержку Python 3.11–3.13.
-- [ ] Добавить и зафиксировать совместимую версию `uv`; CI должен устанавливать её без нового стороннего GitHub Action.
-- [ ] Создать `uv.lock` с resolved versions и hashes для поддерживаемых окружений.
-- [ ] Сделать `server/requirements.txt` генерируемым export runtime dependencies из lock без самого проекта и dev dependencies; сохранить hashes и удалить независимое ручное определение версий.
-- [ ] Перевести Python CI и Python-часть preflight на locked sync и запуск через `uv`.
-- [ ] Сохранить сборку sdist/wheel и установку wheel в отдельное чистое окружение; проверять help для `tax`, `notify`, `run`, `remote-host`.
-- [ ] Зафиксировать build backend совместимым способом, чтобы package build не обходил выбранную политику воспроизводимости.
-- [ ] Настроить Dependabot для `uv.lock`, сохранив обновления GitHub Actions.
-- [ ] Добавить CI-проверку актуальности generated requirements относительно lock; обновление dependencies должно включать согласованное обновление export.
-- [ ] Не менять пользовательскую установку через pipx без необходимости и не добавлять `uv` как runtime dependency CLI.
+- [x] Использовать `pyproject.toml` как единственный источник прямых runtime/dev dependencies; сохранить существующий `dev` extra и поддержку Python 3.11–3.13.
+- [x] Добавить и зафиксировать совместимую версию `uv`; CI должен устанавливать её без нового стороннего GitHub Action.
+- [x] Создать `uv.lock` с resolved versions и hashes для поддерживаемых окружений.
+- [x] Сделать `server/requirements.txt` генерируемым export runtime dependencies из lock без самого проекта и dev dependencies; сохранить hashes и удалить независимое ручное определение версий.
+- [x] Перевести Python CI и Python-часть preflight на locked sync и запуск через `uv`.
+- [x] Сохранить сборку sdist/wheel и установку wheel в отдельное чистое окружение; проверять help для `tax`, `notify`, `run`, `remote-host`.
+- [x] Зафиксировать build backend совместимым способом, чтобы package build не обходил выбранную политику воспроизводимости.
+- [x] Настроить Dependabot для `uv.lock`, сохранив обновления GitHub Actions.
+- [x] Добавить CI-проверку актуальности generated requirements относительно lock; обновление dependencies должно включать согласованное обновление export.
+- [x] Не менять пользовательскую установку через pipx без необходимости и не добавлять `uv` как runtime dependency CLI.
+
+### Task 2 execution notes
+
+- `pyproject.toml` остаётся единственным источником прямых зависимостей (9 runtime + `dev` extra, `requires-python = ">=3.11"`, CI-матрица 3.11–3.13 без изменений). `uv` не добавлен в runtime dependencies; pipx-установка CLI не менялась.
+- Версия `uv` зафиксирована как `0.12.13`: `[tool.uv] required-version = "==0.12.13"` и `UV_VERSION` в `.github/workflows/python.yml`; CI ставит её через `python -m pip install uv==...` (setup-python + pip, без сторонних Action).
+- `uv.lock` создан `uv lock` (uv 0.12.13): universal resolution для `requires-python = ">=3.11"`, 51 пакет, sdist/wheel sha256-hashes.
+- `server/requirements.txt` теперь generated export: `uv export --no-dev --no-emit-project -o server/requirements.txt` (команда продублирована в header файла); 39 pinned-пакетов с hashes, без самого проекта и dev dependencies; повторный export побайтно совпадает (кроме строки header с путём вывода). `pip install --dry-run --require-hashes` проходит.
+- Build backend зафиксирован: `[build-system] requires = ["hatchling==1.32.0"]`; `uv build` собирает в изолированном окружении с этой версией.
+- CI: jobs `test`/`package`/`dependency-audit` переведены на `uv sync --locked --extra dev` и `uv run --locked --extra dev ...`; `pip-audit` запускается через `uv run --with pip-audit`; paths-триггеры дополнены `uv.lock` и `server/requirements.txt`; в `package` добавлен шаг проверки, что повторный export не даёт diff по `server/requirements.txt`.
+- `scripts/preflight.sh`: Python-часть переведена на `uv sync/run/build` (переменная `UV_BIN`, ошибка при отсутствии uv); clean-venv wheel smoke с help-проверками `tax`/`notify`/`run`/`remote-host` сохранён.
+- Dependabot: экосистема `pip` заменена на `uv` (pyproject + `uv.lock`), обновления `github-actions` сохранены.
+- Валидация: `uv lock --check`; `uv sync --locked --extra dev`; `uv run --locked --extra dev ruff check server src tests`; `uv run --locked --extra dev pytest -q` — 79 passed, как на базовом коммите (единственный warning — существующий starlette/anyio DeprecationWarning, присутствует и до изменений); повторный export vs tracked `server/requirements.txt` — идентично; `uv build` во временный каталог + установка wheel в чистый venv + help для `tax`, `notify`, `run`, `remote-host`; `pip install --dry-run --require-hashes -r server/requirements.txt`; `bash -n scripts/preflight.sh`; `git diff --check`. npm/pytest-изменения кода отсутствуют: Python-код не менялся.
+
 
 ### Task 3: Параметризовать systemd и исправить Docker Compose
 

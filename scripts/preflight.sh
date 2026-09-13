@@ -3,10 +3,11 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
-PYTHON="${PYTHON:-$ROOT_DIR/.venv/bin/python}"
+UV_BIN="${UV_BIN:-uv}"
 
-if [[ ! -x "$PYTHON" ]]; then
-  PYTHON="$(command -v python3)"
+if ! command -v "$UV_BIN" >/dev/null 2>&1; then
+  echo "uv is required for the Python checks (see README for install instructions)" >&2
+  exit 1
 fi
 
 if [[ -n "$(git status --short)" ]]; then
@@ -15,19 +16,20 @@ if [[ -n "$(git status --short)" ]]; then
 fi
 
 echo "== Version =="
-"$PYTHON" -c 'import tax; print(getattr(tax, "__version__", "from pyproject.toml"))'
+"$UV_BIN" run --locked --extra dev python -c 'import tax; print(getattr(tax, "__version__", "from pyproject.toml"))'
 git rev-parse --short HEAD
 git describe --tags --abbrev=0 2>/dev/null || echo "no previous tag"
 
-echo "== Python lint and tests =="
-"$PYTHON" -m ruff check server src tests
-"$PYTHON" -m pytest -q
+echo "== Python lint and tests (locked sync) =="
+"$UV_BIN" sync --locked --extra dev
+"$UV_BIN" run --locked --extra dev ruff check server src tests
+"$UV_BIN" run --locked --extra dev pytest -q
 
 echo "== Build package =="
 rm -rf dist build
-"$PYTHON" -m build
+"$UV_BIN" build
 TMP_VENV="$(mktemp -d)/venv"
-"$PYTHON" -m venv "$TMP_VENV"
+python3 -m venv "$TMP_VENV"
 "$TMP_VENV/bin/pip" --quiet install dist/*.whl
 "$TMP_VENV/bin/tax" --help >/dev/null
 "$TMP_VENV/bin/tax" notify --help >/dev/null
