@@ -10,6 +10,12 @@ on:
       - 'pyproject.toml'
       - 'uv.lock'
       - 'server/requirements.txt'
+      - 'deploy.sh'
+      - 'reinstall-backend.sh'
+      - 'Caddyfile'
+      - 'deploy.env.example'
+      - 'scripts/deploy-backend.sh'
+      - 'scripts/deploy-config.sh'
       - '.github/workflows/python.yml'
   pull_request:
     paths:
@@ -19,6 +25,12 @@ on:
       - 'pyproject.toml'
       - 'uv.lock'
       - 'server/requirements.txt'
+      - 'deploy.sh'
+      - 'reinstall-backend.sh'
+      - 'Caddyfile'
+      - 'deploy.env.example'
+      - 'scripts/deploy-backend.sh'
+      - 'scripts/deploy-config.sh'
       - '.github/workflows/python.yml'
 
 concurrency:
@@ -74,6 +86,43 @@ jobs:
           /tmp/tax-wheel/bin/tax notify --help
           /tmp/tax-wheel/bin/tax run --help
           /tmp/tax-wheel/bin/tax remote-host --help
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check Docker and Compose availability
+        run: |
+          docker version
+          docker compose version
+      - name: Validate Compose configuration with a synthetic environment
+        run: |
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          data_dir="$tmpdir/data"
+          keys_dir="$tmpdir/keys"
+          mkdir -p "$data_dir" "$keys_dir"
+          cat > "$tmpdir/compose.env" <<EOF
+          TAX_DEPLOY_PORT=8123
+          TAX_COMPOSE_DATA_DIR=$data_dir
+          TAX_COMPOSE_KEYS_DIR=$keys_dir
+          TAX_API_KEY=synthetic-api-key
+          TAX_APNS_KEY_ID=synthetic-key-id
+          TAX_APNS_TEAM_ID=synthetic-team-id
+          TAX_APNS_BUNDLE_ID=com.example.tax
+          TAX_APNS_USE_SANDBOX=1
+          EOF
+          docker compose --env-file "$tmpdir/compose.env" -f server/docker-compose.yml config > "$tmpdir/resolved.yml"
+          grep -Eq '127\.0\.0\.1:8123:8000|published: "8123"' "$tmpdir/resolved.yml"
+          grep -Eq '127\.0\.0\.1:8000:8000|target: 8000' "$tmpdir/resolved.yml"
+          grep -Fq "$data_dir" "$tmpdir/resolved.yml"
+          grep -Fq "$keys_dir" "$tmpdir/resolved.yml"
+      - name: Build the backend image
+        run: docker build --tag tax-backend:ci server
+      - name: Import backend modules inside the built image
+        run: |
+          docker run --rm --network none tax-backend:ci \
+            python -c 'import main, relay, storage, apns'
 
   repository-safety:
     runs-on: ubuntu-latest

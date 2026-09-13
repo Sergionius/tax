@@ -2,10 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Hash-checked installation from the generated, locked requirements export.
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
-COPY main.py apns.py logging_config.py storage.py ./
+# All backend runtime modules, including the relay.
+COPY logging_config.py apns.py relay.py storage.py main.py ./
 
 EXPOSE 8000
 

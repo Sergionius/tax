@@ -1,20 +1,32 @@
-version: "3.8"
+# Backend runtime container.
+#
+# The container port stays 8000. The host loopback port, persistent data
+# directory and key directory are configurable through the compose
+# environment file (see deploy.env.example):
+#   TAX_DEPLOY_PORT         host loopback port (default 8000); keep it equal
+#                           to the reverse_proxy port in the rendered Caddyfile
+#   TAX_COMPOSE_DATA_DIR    host directory mounted at /data (default ./data)
+#   TAX_COMPOSE_KEYS_DIR    host directory mounted at /keys (default ./keys)
+#
+# TAX_API_KEY, TAX_APNS_KEY_ID, TAX_APNS_TEAM_ID and TAX_APNS_BUNDLE_ID are
+# required; Compose fails fast when they are missing from the environment
+# file. TAX_APNS_USE_SANDBOX defaults to 0 (production APNs).
 
 services:
   tax:
     build: .
     container_name: tax-server
     ports:
-      - "127.0.0.1:8001:8000"
+      - "127.0.0.1:${TAX_DEPLOY_PORT:-8000}:8000"
     volumes:
-      - ./data:/data
-      - ./keys:/keys:ro
+      - "${TAX_COMPOSE_DATA_DIR:-./data}:/data"
+      - "${TAX_COMPOSE_KEYS_DIR:-./keys}:/keys:ro"
     environment:
       - TAX_DB_PATH=/data/tax.db
-      - TAX_API_KEY=${TAX_API_KEY}
+      - TAX_API_KEY=${TAX_API_KEY:?set TAX_API_KEY in the compose environment file}
       - TAX_APNS_KEY_PATH=/keys/AuthKey.p8
-      - TAX_APNS_KEY_ID=${TAX_APNS_KEY_ID}
-      - TAX_APNS_TEAM_ID=${TAX_APNS_TEAM_ID}
-      - TAX_APNS_BUNDLE_ID=${TAX_APNS_BUNDLE_ID}
+      - TAX_APNS_KEY_ID=${TAX_APNS_KEY_ID:?set TAX_APNS_KEY_ID in the compose environment file}
+      - TAX_APNS_TEAM_ID=${TAX_APNS_TEAM_ID:?set TAX_APNS_TEAM_ID in the compose environment file}
+      - TAX_APNS_BUNDLE_ID=${TAX_APNS_BUNDLE_ID:?set TAX_APNS_BUNDLE_ID in the compose environment file}
       - TAX_APNS_USE_SANDBOX=${TAX_APNS_USE_SANDBOX:-0}
     restart: unless-stopped
