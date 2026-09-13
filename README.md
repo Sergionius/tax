@@ -2,6 +2,22 @@
 
 `tax` позволяет с iPhone подключаться к открытым workspace и терминалам Orca на Mac через зашифрованный relay. Приложение показывает ANSI/TUI-вывод, отправляет ввод в выбранный PTY, создаёт и закрывает терминалы, запускает консольных агентов (pi, Claude Code, Codex) и любые CLI-программы, а также позволяет безопасно просматривать и редактировать файлы workspace.
 
+## Why TAX when Orca already has a mobile app?
+
+[Orca Mobile](https://www.onorca.dev/docs/mobile) is the best choice for most Orca users. It provides a rich, official companion experience with Chat UI, source control, browser access, agent accounts, notifications, and many other features.
+
+TAX serves a narrower use case: remote access through infrastructure you control.
+
+- Run the relay on your own server.
+- Connect without exposing the Orca runtime to the public Internet.
+- Use remote access without depending on Orca Relay or an Orca cloud account.
+- Keep terminal and file traffic end-to-end encrypted with a key unavailable to the relay.
+- Expose only terminals, workspace inventory, and scoped file operations.
+- Send terminal-aware completion notifications from Pi, Claude Code, Codex, or any command wrapped with `tax run`.
+- Control deployment, authentication, retention, APNs, and application code.
+
+TAX is not a replacement for the full Orca Mobile experience. It is a small, self-hosted remote-access layer for users who prioritize infrastructure ownership, data minimization, and operational control.
+
 ## Screenshots
 
 <table>
