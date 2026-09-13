@@ -18,6 +18,12 @@ env/
 *.p8
 keys/
 
+# Local private configuration (owner-only, never commit)
+ios/Config/Local.xcconfig
+# Tracked example files stay visible despite the *.env rule above.
+!deploy.env.example
+!server/.env.example
+
 # Databases and runtime data
 *.db
 *.sqlite

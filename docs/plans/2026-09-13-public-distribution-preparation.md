@@ -1,3 +1,5 @@
+<!-- ralphex-base: 28caea8591af38f941072109f73d5a63ecfcba6a -->
+
 # Подготовка TAX к публичному распространению
 
 ## Goal
@@ -58,15 +60,23 @@
 - `~/.config/tax/deploy.env`
 - `ios/Config/Local.xcconfig`
 
-- [ ] Добавить ignore-правила для локального signing config; явно разрешить tracked example-файлы там, где они пересекаются с существующим правилом `*.env`.
-- [ ] Зафиксировать contract deployment configuration: `TAX_DEPLOY_HOST`, `TAX_DEPLOY_USER`, `TAX_DEPLOY_GROUP`, `TAX_DEPLOY_PROJECT_DIR`, `TAX_DEPLOY_DOMAIN`, `TAX_DEPLOY_PORT`, `TAX_DEPLOY_DB_PATH`, `TAX_DEPLOY_APNS_KEY_PATH`, `TAX_DEPLOY_ENV_FILE`.
-- [ ] Определить приоритет deployment-настроек: явные environment overrides, затем файл из `TAX_DEPLOY_CONFIG`, затем `~/.config/tax/deploy.env`. Отсутствие явно указанного файла является ошибкой.
-- [ ] До удаления tracked defaults сохранить доступные текущие настройки владельца в приватных файлах. Не перезаписывать существующие значения; конфликт или отсутствие необходимых данных должно останавливать миграцию, а не подставлять пример.
-- [ ] Сохранять локальные config-файлы с правами `0600`; не печатать их содержимое и credentials в диагностику.
-- [ ] Определить signing variables `TAX_DEVELOPMENT_TEAM`, `TAX_APP_BUNDLE_IDENTIFIER`, `TAX_TESTS_BUNDLE_IDENTIFIER`, `TAX_UITESTS_BUNDLE_IDENTIFIER`.
-- [ ] Оставить существующие Keychain entries и Orca pairing file без изменений.
-- [ ] Документировать перенос iPhone server URL в явно сохранённые настройки до исчезновения default; не добавлять приватный URL в migration code.
-- [ ] Описать подготовку private config на VPS без выполнения SSH, изменения сервиса или deployment.
+- [x] Добавить ignore-правила для локального signing config; явно разрешить tracked example-файлы там, где они пересекаются с существующим правилом `*.env`.
+- [x] Зафиксировать contract deployment configuration: `TAX_DEPLOY_HOST`, `TAX_DEPLOY_USER`, `TAX_DEPLOY_GROUP`, `TAX_DEPLOY_PROJECT_DIR`, `TAX_DEPLOY_DOMAIN`, `TAX_DEPLOY_PORT`, `TAX_DEPLOY_DB_PATH`, `TAX_DEPLOY_APNS_KEY_PATH`, `TAX_DEPLOY_ENV_FILE`.
+- [x] Определить приоритет deployment-настроек: явные environment overrides, затем файл из `TAX_DEPLOY_CONFIG`, затем `~/.config/tax/deploy.env`. Отсутствие явно указанного файла является ошибкой.
+- [x] До удаления tracked defaults сохранить доступные текущие настройки владельца в приватных файлах. Не перезаписывать существующие значения; конфликт или отсутствие необходимых данных должно останавливать миграцию, а не подставлять пример.
+- [x] Сохранять локальные config-файлы с правами `0600`; не печатать их содержимое и credentials в диагностику.
+- [x] Определить signing variables `TAX_DEVELOPMENT_TEAM`, `TAX_APP_BUNDLE_IDENTIFIER`, `TAX_TESTS_BUNDLE_IDENTIFIER`, `TAX_UITESTS_BUNDLE_IDENTIFIER`.
+- [x] Оставить существующие Keychain entries и Orca pairing file без изменений.
+- [x] Документировать перенос iPhone server URL в явно сохранённые настройки до исчезновения default; не добавлять приватный URL в migration code.
+- [x] Описать подготовку private config на VPS без выполнения SSH, изменения сервиса или deployment.
+
+### Task 1 execution notes
+
+- Создан `~/.config/tax/deploy.env` (0600) со всеми 9 contract-переменными; значения сверены со tracked источниками на момент миграции (`deploy.sh`, `server/tax.service`, `scripts/deploy-backend.sh`). Файл ранее отсутствовал, перезаписи не было.
+- Создан `ios/Config/Local.xcconfig` (0600) с 4 signing-переменными; значения сверены с `ios/tax/tax.xcodeproj/project.pbxproj`. Файл ранее отсутствовал, игнорируется Git.
+- `~/.config/tax/config.json`, `~/.config/tax/orca-pairing*` и Keychain не изменялись.
+- Приватные значения (host, user, domain, пути, team, bundle IDs) отсутствуют в tracked файлах; проверено grep-сканированием новых файлов.
+- Валидация: `git diff --check` чистый; `git check-ignore` подтверждает ignore `ios/Config/Local.xcconfig` и `deploy.env` при tracked `deploy.env.example`/`server/.env.example`; состав contract-переменных согласован между планом, примерами и `docs/LOCAL_CONFIGURATION.md`. Команды uv/pytest/npm/xcode не применимы: код и скрипты не менялись.
 
 ### Task 2: Сделать Python-зависимости воспроизводимыми через uv
 
