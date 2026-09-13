@@ -38,8 +38,8 @@ struct WorkspaceListView: View {
                         .foregroundStyle(WorkspaceTheme.textHi)
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    // Отступ слева: капсула тулбара охватывает группу целиком,
-                    // без него индикатор прижат к левому краю несимметрично.
+                    // Leading padding: the toolbar capsule wraps the whole group;
+                    // without it the indicator hugs the left edge asymmetrically.
                     WorkspaceConnectionIndicator(state: store.connectionState)
                         .padding(.leading, 8)
                     NavigationLink(destination: SettingsView()) {
@@ -117,13 +117,13 @@ struct WorkspaceListView: View {
     }
 }
 
-/// Карточка workspace в списке: наверху название проекта, под ним ветка,
-/// путь, число терминалов и существующий статус агента.
-/// Активность различается только оформлением.
+/// Workspace card in the list: project name on top, with the branch,
+/// path, terminal count and current agent status below.
+/// Active state differs only in styling.
 private struct WorkspaceListCard: View {
     let workspace: RemoteWorkspace
 
-    /// Наверху карточки — название проекта; displayName используется как fallback.
+    /// The card title is the project name; displayName is the fallback.
     private var cardTitle: String {
         workspace.projectName.isEmpty ? workspace.displayName : workspace.projectName
     }
@@ -176,8 +176,8 @@ private struct WorkspaceListCard: View {
     }
 }
 
-/// Тематический индикатор соединения для списка workspace.
-/// Терминал продолжает использовать `ConnectionStatus` — его вид не меняется.
+/// Themed connection indicator for the workspace list.
+/// The terminal keeps using `ConnectionStatus` — its appearance is unchanged.
 struct WorkspaceConnectionIndicator: View {
     let state: RemoteConnectionState
 
@@ -223,8 +223,8 @@ struct WorkspaceConnectionIndicator: View {
 }
 
 private extension RemoteWorkspace {
-    /// Приглушённое оформление — только для статуса "inactive".
-    /// В любом другом случае карточка обычная, с яркой полосой и бейджем.
+    /// Dimmed styling applies only to the "inactive" status.
+    /// In any other case the card is regular, with a bright bar and badge.
     var isVisuallyActive: Bool {
         agentState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "inactive"
     }

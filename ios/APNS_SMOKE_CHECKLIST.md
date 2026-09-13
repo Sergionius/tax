@@ -1,41 +1,41 @@
 # APNs smoke checklist
 
-Проверка выполняется на физическом iPhone: симулятор не получает реальные APNs.
+Run this check on a physical iPhone: the simulator does not receive real APNs pushes.
 
-## Данные прогона
+## Run details
 
 - App version / build:
 - Git commit:
-- Устройство:
+- Device:
 - iOS:
-- Сборка: Debug / TestFlight
+- Build: Debug / TestFlight
 - APNs: sandbox / production
-- Дата и исполнитель:
-- Итог: PASS / FAIL
-- Ссылки на дефекты:
+- Date and operator:
+- Result: PASS / FAIL
+- Defect links:
 
-## Подготовка
+## Preparation
 
-- [ ] Установить свежую Debug- или TestFlight-сборку.
-- [ ] Убедиться, что bundle ID совпадает с APNs topic.
-- [ ] На Mac запустить агента (pi, Claude Code или Codex) в терминале Orca, чтобы push привёл в конкретный terminal.
-- [ ] В Settings указать server URL, API key, Host ID, Device ID и E2EE key, нажать **Save Settings**.
-- [ ] Разрешить уведомления в системных настройках.
-- [ ] Нажать **Request Push Registration** и убедиться, что появился device token.
-- [ ] Проверить `Check Server Health` и выполнить `tax push-doctor` на Mac.
+- [ ] Install a fresh Debug or TestFlight build.
+- [ ] Verify the bundle ID matches the APNs topic.
+- [ ] On the Mac, run an agent (pi, Claude Code, or Codex) inside an Orca terminal so the push deep-links to a specific terminal.
+- [ ] In Settings, enter the server URL, API key, Host ID, Device ID, and E2EE key, then tap **Save Settings**.
+- [ ] Allow notifications in system settings.
+- [ ] Tap **Request Push Registration** and confirm a device token appears.
+- [ ] Run `Check Server Health` and `tax push-doctor` on the Mac.
 
-## Основной сценарий
+## Main scenario
 
-- [ ] Дождаться завершения хода агента и получить push при закрытом приложении.
-- [ ] Нажать уведомление и убедиться, что открылись правильные Mac, workspace и terminal.
-- [ ] Получить push при открытом приложении (foreground); проверить banner.
-- [ ] Проверить режимы `all`, `tax` и `off`: в `all` и `tax` push приходит, в `off` — нет. Вернуть требуемый режим.
-- [ ] Убедиться, что push на закрытый terminal не ломает приложение: открывается workspace с сообщением о закрытом терминале.
+- [ ] Wait for an agent turn to finish and receive the push while the app is closed.
+- [ ] Tap the notification and confirm the correct Mac, workspace, and terminal open.
+- [ ] Receive a push with the app in the foreground; check the banner.
+- [ ] Check the `all`, `tax`, and `off` push modes: pushes arrive in `all` and `tax`, none in `off`. Restore the desired mode.
+- [ ] Confirm that a push for a closed terminal does not break the app: the workspace opens with a closed-terminal message.
 
 ## Reconnect
 
-- [ ] Выключить сеть на iPhone, включить снова и убедиться, что приложение переподключилось к relay и восстановило terminal snapshot без смешивания generations.
+- [ ] Turn the iPhone's network off and on again; confirm the app reconnects to the relay and restores the terminal snapshot without mixing generations.
 
-## Критерий PASS
+## PASS criterion
 
-Все обязательные пункты выполнены; расхождения зафиксированы ссылками на дефекты. APNs environment соответствует типу сборки: sandbox для Debug и production для TestFlight/App Store.
+All mandatory items pass; discrepancies are recorded as defect links. The APNs environment matches the build type: sandbox for Debug, production for TestFlight/App Store.

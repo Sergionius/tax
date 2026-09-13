@@ -1,5 +1,7 @@
 # Security Policy
 
+For what TAX encrypts, what the backend and Apple can see, and what is stored, see [`docs/PRIVACY.md`](docs/PRIVACY.md).
+
 ## Supported versions
 
 Only the current `0.4.x` line receives security fixes. Older releases are not supported.

@@ -26,8 +26,8 @@ struct TaxApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .active:
-                        // Любой запуск или возврат к уже запущенному приложению:
-                        // сбрасываем счётчик на иконке.
+                        // Any launch or return to an already running app:
+                        // reset the badge count on the icon.
                         Swift.Task { try? await UNUserNotificationCenter.current().setBadgeCount(0) }
                         Swift.Task { await remoteStore.resume(settings: settingsStore) }
                     case .background: remoteStore.suspend()

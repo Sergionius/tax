@@ -1,24 +1,24 @@
 # tax iOS
 
-SwiftUI-клиент удалённых Orca workspace: терминалы, файлы, настройки и навигация из push-уведомлений агентов (pi, Claude Code, Codex).
+SwiftUI client for remote Orca workspaces: terminals, files, settings, and navigation from agent push notifications (pi, Claude Code, Codex).
 
 - iOS 17+
 - Swift 6, strict concurrency
 - SwiftUI Observation (`@Observable`)
-- API key в Keychain; URL и push preferences в UserDefaults
-- Bundle ID: `ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp`
+- API key in Keychain; URL and push preferences in UserDefaults
+- Bundle identifiers come from `ios/Config/Public.xcconfig` (`com.example.tax` by default) and can be overridden privately via `ios/Config/Local.xcconfig`; see [`docs/LOCAL_CONFIGURATION.md`](../docs/LOCAL_CONFIGURATION.md)
 
-## Запуск
+## Getting started
 
-1. Открыть `tax/tax.xcodeproj`.
-2. Выбрать signing team и физический iPhone для проверки APNs.
-3. Убедиться, что включена capability **Push Notifications**.
-4. В приложении открыть Settings, указать `https://tax.138-249-127-23.nip.io` и API key.
-5. Нажать **Save Settings**, затем **Request Push Registration**.
+1. Open `tax/tax.xcodeproj`.
+2. Select your signing team and a physical iPhone for real APNs testing.
+3. Make sure the **Push Notifications** capability is enabled.
+4. In the app, open Settings and enter your server URL and API key.
+5. Tap **Save Settings**, then **Request Push Registration**.
 
-Симулятор подходит для build, unit- и mock UI-тестов, но не для реального APNs.
+The simulator works for builds and unit/mock UI tests, but not for real APNs.
 
-## Автоматические проверки
+## Automated checks
 
 ```bash
 xcodebuild build \
@@ -40,32 +40,32 @@ xcodebuild test \
   -only-testing:taxUITests
 ```
 
-UI tests запускают приложение с mock backend через launch arguments и не используют сеть, Keychain пользователя или секреты.
+UI tests launch the app against a mock backend through launch arguments and never touch the network, your Keychain, or secrets.
 
-Из корня репозитория:
+From the repository root:
 
 ```bash
 ./scripts/preflight.sh                 # build + unit tests
-IOS_UI_TESTS=1 ./scripts/preflight.sh  # также UI smoke tests
+IOS_UI_TESTS=1 ./scripts/preflight.sh  # also UI smoke tests
 ```
 
-Preflight ничего не загружает в TestFlight/App Store.
+Preflight never uploads anything to TestFlight/App Store.
 
-## Версии и сборки
+## Versions and builds
 
-- `MARKETING_VERSION` (`CFBundleShortVersionString`) меняется для пользовательского релиза: `major.minor.patch`.
-- `CURRENT_PROJECT_VERSION` (`CFBundleVersion`) увеличивается для каждой загружаемой сборки и не переиспользуется.
-- Изменения выполняются одновременно для Debug и Release configurations.
-- Upload — отдельная явная команда с подтверждением; signing credentials и APNs `.p8` не хранятся в Git.
-- Черновик release notes: `./scripts/release-notes.sh [previous-tag]`.
+- `MARKETING_VERSION` (`CFBundleShortVersionString`) changes for a user-facing release: `major.minor.patch`.
+- `CURRENT_PROJECT_VERSION` (`CFBundleVersion`) increments for every uploaded build and is never reused.
+- Change both for Debug and Release configurations at the same time.
+- Uploading is a separate explicit command requiring confirmation; signing credentials and the APNs `.p8` are never stored in Git.
+- Release notes draft: `./scripts/release-notes.sh [previous-tag]`.
 
-## Проверка APNs
+## APNs verification
 
-Следовать [`APNS_SMOKE_CHECKLIST.md`](APNS_SMOKE_CHECKLIST.md). Для Debug используется APNs sandbox, для TestFlight/App Store — production.
+Follow [`APNS_SMOKE_CHECKLIST.md`](APNS_SMOKE_CHECKLIST.md). Debug builds use the APNs sandbox; TestFlight/App Store use production.
 
-## Структура
+## Structure
 
-- `tax/tax/` — приложение, stores, services и push routing.
-- `tax/taxTests/` — unit-тесты и JSON fixtures из текущего backend schema.
-- `tax/taxUITests/` — mock UI smoke-тесты.
-- `.github/workflows/ios.yml` — simulator build, unit и UI jobs.
+- `tax/tax/` — the app, stores, services, and push routing.
+- `tax/taxTests/` — unit tests and JSON fixtures matching the current backend schema.
+- `tax/taxUITests/` — mock UI smoke tests.
+- `.github/workflows/ios.yml` — simulator build, unit, and UI jobs.

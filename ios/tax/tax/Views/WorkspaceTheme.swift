@@ -1,41 +1,41 @@
 import SwiftUI
 
-/// Изолированная дизайн-система нетерминальных экранов workspace.
+/// Isolated design system for the non-terminal workspace screens.
 ///
-/// Всё здесь опционально: экран применяет `.workspaceScreenTheme()` (или отдельные стили)
-/// к собственному содержимому. Ничего в этом файле не меняет глобальный `AccentColor`,
-/// UIKit appearance-прокси и общую цветовую схему приложения. Тема не должна доставаться
-/// терминальному destination: применяйте модификаторы на конкретных экранах, а не на
-/// общем `NavigationStack` (см. `workspaceScreenTheme()`).
+/// Everything here is opt-in: a screen applies `.workspaceScreenTheme()` (or individual
+/// styles) to its own content. Nothing in this file changes the global `AccentColor`,
+/// the UIKit appearance proxies or the app-wide color scheme. The theme must not leak
+/// into terminal destinations: apply the modifiers to individual screens, not to the
+/// shared `NavigationStack` (see `workspaceScreenTheme()`).
 enum WorkspaceTheme {
-    // MARK: - Палитра
+    // MARK: - Palette
 
-    /// Фон экрана.
+    /// Screen background.
     static let bg = Color(themeHex: 0x070A1E)
-    /// Поверхность карточки.
+    /// Card surface.
     static let surface = Color(themeHex: 0x10132C)
-    /// Поверхность карточки при нажатии.
+    /// Card surface while pressed.
     static let surface2 = Color(themeHex: 0x171B3C)
-    /// Основная обводка.
+    /// Primary border.
     static let border = Color(themeHex: 0x262C52)
-    /// Приглушённая обводка.
+    /// Dimmed border.
     static let borderLo = Color(themeHex: 0x1A1E3C)
-    /// Основной текст.
+    /// Primary text.
     static let textHi = Color(themeHex: 0xF1F2FA)
-    /// Вторичный текст.
+    /// Secondary text.
     static let textLo = Color(themeHex: 0x7B81AC)
-    /// Технический/приглушённый текст.
+    /// Technical/dimmed text.
     static let textDim = Color(themeHex: 0x464C78)
-    /// Акцент.
+    /// Accent.
     static let accent = Color(themeHex: 0x7278EE)
-    /// Приглушённый акцент (неактивные элементы).
+    /// Dimmed accent (inactive elements).
     static let accentDim = Color(themeHex: 0x4548A0)
-    /// Светлый акцент (текст на акцентном фоне, яркие бейджи).
+    /// Light accent (text on accent backgrounds, bright badges).
     static let accentLight = Color(themeHex: 0x9EA3F2)
 }
 
 private extension Color {
-    /// Цвет из sRGB-триплета, например `0x070A1E`.
+    /// Color from an sRGB triplet, e.g. `0x070A1E`.
     init(themeHex hex: UInt32) {
         self.init(
             .sRGB,
@@ -47,20 +47,20 @@ private extension Color {
     }
 }
 
-// MARK: - Типографика
+// MARK: - Typography
 
 extension Font {
-    /// Space Grotesk для интерфейсных текстов; поддерживает Dynamic Type.
+    /// Space Grotesk for interface text; supports Dynamic Type.
     static func workspaceUI(_ style: Font.TextStyle, weight: Font.Weight = .regular) -> Font {
         .custom(Self.spaceGroteskName(for: weight), size: Self.baseSize(for: style), relativeTo: style)
     }
 
-    /// JetBrains Mono для путей, веток, счётчиков и технических данных; поддерживает Dynamic Type.
+    /// JetBrains Mono for paths, branches, counters and technical data; supports Dynamic Type.
     static func workspaceMono(_ style: Font.TextStyle, weight: Font.Weight = .regular) -> Font {
         .custom(Self.jetBrainsMonoName(for: weight), size: Self.baseSize(for: style), relativeTo: style)
     }
 
-    /// PostScript-имена подключённых начертаний Space Grotesk.
+    /// PostScript names of the bundled Space Grotesk faces.
     private static func spaceGroteskName(for weight: Font.Weight) -> String {
         switch weight {
         case .medium: "SpaceGrotesk-Medium"
@@ -69,7 +69,7 @@ extension Font {
         }
     }
 
-    /// PostScript-имена подключённых начертаний JetBrains Mono.
+    /// PostScript names of the bundled JetBrains Mono faces.
     private static func jetBrainsMonoName(for weight: Font.Weight) -> String {
         switch weight {
         case .medium, .semibold, .bold, .heavy, .black: "JetBrainsMono-Medium"
@@ -77,7 +77,7 @@ extension Font {
         }
     }
 
-    /// Базовые размеры системных текстовых стилей для `Font.custom(_:size:relativeTo:)`.
+    /// Base sizes of the system text styles for `Font.custom(_:size:relativeTo:)`.
     private static func baseSize(for style: Font.TextStyle) -> CGFloat {
         switch style {
         case .largeTitle: 34
@@ -95,9 +95,9 @@ extension Font {
     }
 }
 
-// MARK: - Бейдж
+// MARK: - Badge
 
-/// Небольшой акцентный бейдж: яркий в активном состоянии, приглушённый в неактивном.
+/// Small accent badge: bright when active, dimmed when inactive.
 struct WorkspaceBadge: View {
     let text: String
     var icon: String? = nil
@@ -123,14 +123,14 @@ struct WorkspaceBadge: View {
     }
 }
 
-// MARK: - Карточка
+// MARK: - Card
 
 extension WorkspaceTheme {
-    /// Радиус скругления карточек.
+    /// Card corner radius.
     static let cardCornerRadius: CGFloat = 14
-    /// Толщина обводки карточек.
+    /// Card border width.
     static let cardBorderWidth: CGFloat = 1
-    /// Внутренние отступы карточек.
+    /// Card inner padding.
     static let cardPadding: CGFloat = 14
 }
 
@@ -146,21 +146,21 @@ private struct WorkspaceCardModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: WorkspaceTheme.cardCornerRadius, style: .continuous)
                     .strokeBorder(WorkspaceTheme.border, lineWidth: WorkspaceTheme.cardBorderWidth)
             )
-        // Без теней: карточки отделяются фоном и обводкой.
+        // No shadows: cards are separated by background and border.
     }
 }
 
 extension View {
-    /// Карточка: внутренние отступы 14 pt, фон `surface` (`surface-2` при нажатии),
-    /// радиус 14 pt, обводка 1 pt, без теней.
+    /// Card: 14 pt inner padding, `surface` background (`surface-2` when pressed),
+    /// 14 pt corner radius, 1 pt border, no shadows.
     func workspaceCard(isPressed: Bool = false) -> some View {
         modifier(WorkspaceCardModifier(isPressed: isPressed))
     }
 }
 
-// MARK: - Состояние нажатия
+// MARK: - Press state
 
-/// Нажимаемая карточка: фон `surface`, при нажатии — `surface-2`.
+/// Pressable card: `surface` background, `surface-2` while pressed.
 struct WorkspaceCardButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -169,16 +169,16 @@ struct WorkspaceCardButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - Активность карточек
+// MARK: - Card activity
 
 extension WorkspaceTheme {
-    /// Ширина левой полосы активной карточки.
+    /// Width of the active card's leading bar.
     static let activeBarWidth: CGFloat = 3
-    /// Прозрачность неактивных карточек (остаются полностью интерактивными).
+    /// Opacity of inactive cards (they remain fully interactive).
     static let inactiveOpacity: Double = 0.55
 }
 
-/// Левая полоса 3 pt: яркая акцентная у активных карточек, приглушённая у неактивных.
+/// 3 pt leading bar: bright accent for active cards, dimmed for inactive ones.
 struct WorkspaceActiveBar: View {
     var isActive = true
 
@@ -194,18 +194,18 @@ private struct WorkspaceEmphasisModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.opacity(isActive ? 1 : WorkspaceTheme.inactiveOpacity)
-        // Намеренно без .disabled: неактивные элементы остаются доступными для нажатия.
+        // Deliberately no .disabled: inactive elements stay tappable.
     }
 }
 
 extension View {
-    /// Приглушает неактивные карточки (≈55% opacity), не превращая их в disabled.
+    /// Dims inactive cards (≈55% opacity) without turning them into disabled controls.
     func workspaceEmphasis(isActive: Bool) -> some View {
         modifier(WorkspaceEmphasisModifier(isActive: isActive))
     }
 }
 
-// MARK: - Оформление экрана
+// MARK: - Screen styling
 
 private struct WorkspaceScreenThemeModifier: ViewModifier {
     func body(content: Content) -> some View {
@@ -219,19 +219,20 @@ private struct WorkspaceScreenThemeModifier: ViewModifier {
 }
 
 extension View {
-    /// Применяет тему к одному нетерминальному экрану: акцентный tint, скрытие системного
-    /// фона списков (экраны рисуют собственный `bg`), тёмная панель навигации.
+    /// Applies the theme to one non-terminal screen: accent tint, hiding the system
+    /// list background (screens draw their own `bg`), dark navigation bar.
     ///
-    /// Важно: применяйте модификатор к содержимому конкретного экрана (внутри case
-    /// `.navigationDestination` или к корню экрана), а не к общему `NavigationStack` —
-    /// иначе tint и оформление панели распространятся на терминальный destination.
-    /// Глобальные `AccentColor`, UIKit appearance и цветовая схема приложения не меняются.
+    /// Important: apply the modifier to the content of an individual screen (inside a
+    /// `.navigationDestination` case or at the screen root), not to the shared
+    /// `NavigationStack` — otherwise the tint and bar styling spread to the terminal
+    /// destination. Global `AccentColor`, UIKit appearance and the app color scheme
+    /// are unchanged.
     func workspaceScreenTheme() -> some View {
         modifier(WorkspaceScreenThemeModifier())
     }
 
-    /// Локальный заголовок панели навигации в Space Grotesk (toolbar principal),
-    /// без изменения UIKit appearance — поэтому оформление не выходит за пределы экрана.
+    /// Local navigation bar title in Space Grotesk (toolbar principal),
+    /// without changing UIKit appearance — so the styling stays on this screen.
     func workspacePrincipalTitle(_ title: String) -> some View {
         toolbar {
             ToolbarItem(placement: .principal) {
@@ -243,8 +244,8 @@ extension View {
         }
     }
 
-    /// Локальный заголовок панели навигации, прижатый к левому краю
-    /// (крупный текст Space Grotesk); оформление не выходит за пределы экрана.
+    /// Local navigation bar title aligned to the leading edge
+    /// (large Space Grotesk text); the styling stays on this screen.
     func workspaceLeadingTitle(_ title: String) -> some View {
         toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -256,14 +257,14 @@ extension View {
         }
     }
 
-    /// Тёмный фон экрана `bg` на всю площадь, включая safe areas.
-    /// Применяется к содержимому конкретного экрана вместе с `workspaceScreenTheme()`.
+    /// Dark `bg` screen background across the full area, including safe areas.
+    /// Applied to an individual screen's content together with `workspaceScreenTheme()`.
     func workspaceScreenBackground() -> some View {
         background(WorkspaceTheme.bg.ignoresSafeArea())
     }
 
-    /// Строка `List` под карточку: без разделителя и системного фона строки,
-    /// с горизонтальными отступами 14 pt — карточка рисует собственный фон.
+    /// `List` row under a card: no separator or system row background,
+    /// 14 pt horizontal insets — the card draws its own background.
     func workspaceCardListRow() -> some View {
         listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
@@ -271,35 +272,35 @@ extension View {
     }
 }
 
-// MARK: - Форма настроек
+// MARK: - Settings form
 
 private struct WorkspaceFormScreenThemeModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .workspaceScreenTheme()
-            // Локальная публичная SwiftUI-схема: системные контролы формы (плейсхолдеры,
-            // picker, меню, спиннеры) согласуются с палитрой. Применяется только к
-            // содержимому конкретного экрана и не наследуется терминальным destination.
+            // Local public SwiftUI scheme: system form controls (placeholders,
+            // pickers, menus, spinners) match the palette. Applied only to the
+            // individual screen's content and never inherited by terminal destinations.
             .colorScheme(.dark)
     }
 }
 
 extension View {
-    /// Применяет тему к экрану на основе `Form`: как `workspaceScreenTheme()`, плюс
-    /// локальная тёмная цветовая схема для системных контролов.
+    /// Applies the theme to a `Form`-based screen: like `workspaceScreenTheme()`, plus
+    /// a local dark color scheme for system controls.
     func workspaceFormScreenTheme() -> some View {
         modifier(WorkspaceFormScreenThemeModifier())
     }
 
-    /// Строка `Form` в палитре: фон `surface` и приглушённый разделитель.
+    /// `Form` row in the palette: `surface` background and a dimmed separator.
     func workspaceFormRow() -> some View {
         listRowBackground(WorkspaceTheme.surface)
             .listRowSeparatorTint(WorkspaceTheme.borderLo)
     }
 }
 
-/// Заголовок секции `Form` в палитре: приглушённый текст Space Grotesk.
-/// Верхний регистр сохраняется — это нативное оформление заголовков `Form`.
+/// `Form` section header in the palette: dimmed Space Grotesk text.
+/// Uppercase is preserved — it is the native `Form` header styling.
 struct WorkspaceFormSectionHeader: View {
     let title: String
 
@@ -311,17 +312,17 @@ struct WorkspaceFormSectionHeader: View {
 }
 
 extension View {
-    /// Футер секции `Form` в палитре: приглушённый технический текст Space Grotesk.
+    /// `Form` section footer in the palette: dimmed technical Space Grotesk text.
     func workspaceFormSectionFooter() -> some View {
         font(.workspaceUI(.footnote))
             .foregroundStyle(WorkspaceTheme.textDim)
     }
 }
 
-// MARK: - Секции и состояния экрана
+// MARK: - Sections and screen states
 
-/// Тематический заголовок секции списка: приглушённый текст Space Grotesk
-/// на непрозрачном фоне `bg` (чтобы контент не просвечивал при прокрутке).
+/// Themed list section header: dimmed Space Grotesk text on an opaque `bg`
+/// background (so content does not show through while scrolling).
 struct WorkspaceSectionHeader: View {
     let title: String
 
@@ -338,7 +339,7 @@ struct WorkspaceSectionHeader: View {
     }
 }
 
-/// Тематическое пустое состояние: приглушённая иконка, заголовок и опциональное описание.
+/// Themed empty state: dimmed icon, title and optional description.
 struct WorkspaceEmptyState: View {
     let title: String
     let icon: String
@@ -366,10 +367,10 @@ struct WorkspaceEmptyState: View {
     }
 }
 
-/// Тематическое состояние загрузки: спиннер в акцентном цвете и подпись.
+/// Themed loading state: spinner in the accent color with a caption.
 struct WorkspaceLoadingState: View {
     let text: String
-    /// Центрировать на весь экран (для корневых состояний ожидания).
+    /// Center on the full screen (for root waiting states).
     var fillsScreen = false
 
     var body: some View {
@@ -388,12 +389,12 @@ struct WorkspaceLoadingState: View {
     }
 }
 
-// MARK: - Редактор файлов
+// MARK: - File editor
 
 extension TextEditor {
-    /// Оформление многострочного редактора: JetBrains Mono, текст `text-hi`,
-    /// каретка и выделение в акцентном цвете. Стандартный светлый фон `TextEditor`
-    /// скрыт — под редактором остаётся фон экрана `bg`.
+    /// Multi-line editor styling: JetBrains Mono, `text-hi` text,
+    /// caret and selection in the accent color. The standard light `TextEditor`
+    /// background is hidden — the screen `bg` background remains underneath.
     func workspaceEditorChrome() -> some View {
         font(.workspaceMono(.body))
             .foregroundStyle(WorkspaceTheme.textHi)
@@ -404,8 +405,8 @@ extension TextEditor {
 
 // MARK: - Previews
 
-/// Образец общей карточки для previews темы: полоса активности, заголовок,
-/// бейдж, ветка и длинный путь. Только для previews — без store и моков рантайма.
+/// Sample card for theme previews: activity bar, title,
+/// badge, branch and a long path. Previews only — no store or runtime mocks.
 private struct WorkspaceThemePreviewCard: View {
     var isActive: Bool
 

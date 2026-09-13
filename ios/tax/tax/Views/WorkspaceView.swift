@@ -11,7 +11,7 @@ struct WorkspaceView: View {
 
     private var terminals: [RemoteTerminal]? { store.terminals[workspace.id] }
 
-    /// Наверху экрана — название проекта; displayName используется как fallback.
+    /// The screen title is the project name; displayName is the fallback.
     private var screenTitle: String {
         workspace.projectName.isEmpty ? workspace.displayName : workspace.projectName
     }
@@ -128,8 +128,8 @@ struct WorkspaceView: View {
     }
 }
 
-/// Карточка терминальной сессии: яркая акцентная полоса слева — только
-/// у активных (подключённых) сессий, у отключённых — приглушённая.
+/// Terminal session card: the bright accent bar on the left appears only
+/// for active (connected) sessions; disconnected ones are dimmed.
 private struct TerminalSessionCard: View {
     let terminal: RemoteTerminal
 

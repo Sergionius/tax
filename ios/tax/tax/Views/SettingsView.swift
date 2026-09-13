@@ -191,8 +191,8 @@ struct SettingsView: View {
 
             if let statusMessage {
                 Section {
-                    // Нативный `.red` для ошибок сохраняется; новых оттенков не добавляется —
-                    // различимость обеспечивают текст и иконка.
+                    // Native `.red` is kept for errors; no new tints are introduced —
+                    // the text and icon provide the distinction.
                     HStack(spacing: 8) {
                         Image(systemName: statusIsError ? "exclamationmark.triangle" : "checkmark.circle")
                             .font(.workspaceUI(.subheadline, weight: .medium))

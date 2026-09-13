@@ -39,7 +39,7 @@ A `terminal.subscribe` request must include the renderer's initial `columns` and
 
 Text reads and writes require UTF-8. Images are read-only previews. A read returns a SHA-256 revision; a write is atomic and succeeds only when `expected_revision` still matches. A conflict returns `file_conflict`. Overwrite requires a new request with explicit `force: true`; the client never silently replaces the Mac version.
 
-The relay still sees ciphertext only and does not persist file names or contents.
+For this file traffic the relay sees only ciphertext and does not persist file names or contents; notification delivery is a separate path described in `docs/PRIVACY.md`.
 
 ## Mac host and CLI smoke
 
@@ -64,7 +64,7 @@ The smoke creates a real Orca terminal, subscribes to its initial snapshot, send
 
 ## Push deep links and app lifecycle
 
-APNs alerts carry only `host_id`, optional `workspace_id`, and optional `terminal_id` routing identifiers; the obsolete task/reply action is not exposed by the iOS app. A destination is persisted until SwiftUI consumes it. The app validates the host against its configuration and reports a closed workspace or terminal instead of navigating to stale state.
+APNs alerts carry the notification `title` and `body` (which may include a shortened response preview) plus `host_id`, optional `workspace_id`, and optional `terminal_id` routing identifiers used for deep links. The obsolete task/reply action is not exposed by the iOS app. See `docs/PRIVACY.md` for the exact visibility boundaries. A destination is persisted until SwiftUI consumes it. The app validates the host against its configuration and reports a closed workspace or terminal instead of navigating to stale state.
 
 The iOS app does not claim background WebSocket execution. Entering the background closes the relay connection; foreground activation creates a new E2EE session, refreshes inventory, and resubscribes the visible terminal for a fresh snapshot. Unacknowledged terminal input is still never replayed.
 

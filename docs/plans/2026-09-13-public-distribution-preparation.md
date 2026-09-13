@@ -296,20 +296,31 @@
 - Modify: `ios/tax/tax/Views/WorkspaceView.swift`
 - Modify: `ios/tax/tax/taxApp.swift`
 
-- [ ] Перевести публичный текст, UI strings и комментарии на английский, не меняя поведения и accessibility identifiers.
-- [ ] Сохранить согласованный “Why TAX…” раздел и скриншоты; открыть README формулировкой “A self-hosted, end-to-end encrypted iPhone remote for Orca.”
-- [ ] Уточнить, что E2EE есть и у Orca Mobile; отличие TAX — управление собственной инфраструктурой и более узкий набор функций.
-- [ ] Удалить утверждения, что весь backend видит только ciphertext или push содержит только routing identifiers: notification content обрабатывается отдельно.
-- [ ] Описать поля хранения, defaults, opt-in, hourly cleanup, применение политики к старой базе и отсутствие автоматической очистки backups.
-- [ ] Указать, что удаление SQLite rows/content не является гарантированным физическим стиранием со storage media.
-- [ ] Явно описать границы E2EE: terminal/file traffic шифруется, но backend видит routing/connection metadata, а Apple получает APNs title/body.
-- [ ] Указать, что отключение storage не предотвращает поступление `context/logs` backend по HTTPS.
-- [ ] Разделить README на назначение, screenshots, requirements и краткий setup; подробные systemd/Compose, APNs и troubleshooting инструкции разместить в соответствующих документах.
-- [ ] Использовать только generic domains, paths и bundle IDs. Объяснить необходимость собственного app signing/APNs topic и постоянно доступного Mac.
-- [ ] Сохранить инструкции Pi, Claude Code, Codex и `tax run`, включая best-effort delivery и terminal deep links.
-- [ ] Удалить ссылки на внутренние планы и локальные skills из публичных документов.
-- [ ] Проверить оставшийся публичный текст сканированием; точные дополнительные файлы при обнаружении фиксировать по результатам scan, исключая внутренние каталоги.
-- [ ] Не регенерировать screenshots с live data; проверить текущие PNG на metadata и приватные данные.
+- [x] Перевести публичный текст, UI strings и комментарии на английский, не меняя поведения и accessibility identifiers.
+- [x] Сохранить согласованный “Why TAX…” раздел и скриншоты; открыть README формулировкой “A self-hosted, end-to-end encrypted iPhone remote for Orca.”
+- [x] Уточнить, что E2EE есть и у Orca Mobile; отличие TAX — управление собственной инфраструктурой и более узкий набор функций.
+- [x] Удалить утверждения, что весь backend видит только ciphertext или push содержит только routing identifiers: notification content обрабатывается отдельно.
+- [x] Описать поля хранения, defaults, opt-in, hourly cleanup, применение политики к старой базе и отсутствие автоматической очистки backups.
+- [x] Указать, что удаление SQLite rows/content не является гарантированным физическим стиранием со storage media.
+- [x] Явно описать границы E2EE: terminal/file traffic шифруется, но backend видит routing/connection metadata, а Apple получает APNs title/body.
+- [x] Указать, что отключение storage не предотвращает поступление `context/logs` backend по HTTPS.
+- [x] Разделить README на назначение, screenshots, requirements и краткий setup; подробные systemd/Compose, APNs и troubleshooting инструкции разместить в соответствующих документах.
+- [x] Использовать только generic domains, paths и bundle IDs. Объяснить необходимость собственного app signing/APNs topic и постоянно доступного Mac.
+- [x] Сохранить инструкции Pi, Claude Code, Codex и `tax run`, включая best-effort delivery и terminal deep links.
+- [x] Удалить ссылки на внутренние планы и локальные skills из публичных документов.
+- [x] Проверить оставшийся публичный текст сканированием; точные дополнительные файлы при обнаружении фиксировать по результатам scan, исключая внутренние каталоги.
+- [x] Не регенерировать screenshots с live data; проверить текущие PNG на metadata и приватные данные.
+
+### Task 7 execution notes
+
+- README.md переписан на английском: opener — точная формулировка “A self-hosted, end-to-end encrypted iPhone remote for Orca.”; раздел “Why TAX when Orca already has a mobile app?” и четыре скриншота сохранены; добавлено явное уточнение, что Orca Mobile тоже использует E2EE, отличие TAX — собственная инфраструктура и более узкий набор функций. Структура: назначение → screenshots → как это работает → requirements → краткий setup (7 шагов со ссылками) → agent notifications → upgrading → development checks → ссылки на документы. Подробные deployment-инструкции перенесены в `docs/OPERATIONS.md` (новый раздел “Backend deployment”: systemd как primary вариант, Docker Compose как alternative, запрет прямого экспонирования), APNs — в `ios/APNS_SMOKE_CHECKLIST.md`, renderer acceptance — в `ios/README-REMOTE.md`; troubleshooting остаётся в OPERATIONS.
+- Удалены неверные утверждения: “backend маршрутизирует только ciphertext” (README) заменён на раздельное описание relay-трафика (E2EE ciphertext, не persist’ится) и notification-пути (HTTPS с содержимым, обрабатывается backend’ом и пересылается в APNs); “push содержит только routing identifiers” (README) и “APNs alerts carry only … routing identifiers” (`docs/remote-protocol-v1.md`) заменены на фактическое описание: alert несёт title/body (включая сокращённый preview ответа) плюс routing identifiers и metadata `app/source/agent` (сверено с `server/apns.py`); relay-формулировка про ciphertext явно ограничена file-трафиком.
+- Создан `docs/PRIVACY.md`: три пути (E2EE relay / notification HTTPS+APNs / device registration); границы E2EE — terminal/file traffic шифруется, backend видит routing/connection metadata, Apple получает APNs title/body; полный состав хранимых полей tasks и device registrations (по `TASK_HISTORY_COLUMNS` и `server/storage.py`); `TAX_STORE_AGENT_CONTENT` (off по умолчанию, opt-in строго `1`, очистка существующих строк при старте, delivery не зависит) и `TAX_TASK_RETENTION_DAYS` (default 7, строго положительное целое, startup + hourly, UTC `created_at`, device registrations сохраняются, legacy-схема не меняется); backups не очищаются автоматически; удаление SQLite-строк не является гарантированным физическим стиранием (freelist, WAL, файловая система, backups); отключение storage не предотвращает передачу `context/logs` по HTTPS — влияет только на persistence.
+- Переведены на английский: `ios/README.md` (заодно удалены private bundle ID `ru.madmaximuus…` и nip.io URL — заменены на ссылку на Public/Local.xcconfig), `ios/APNS_SMOKE_CHECKLIST.md`, README, и комментарии в 6 Swift-файлах (`FileBrowserView`, `SettingsView`, `WorkspaceListView`, `WorkspaceTheme`, `WorkspaceView`, `taxApp.swift`). UI strings уже были английскими; accessibility identifiers (`settings.serverURL/apiKey/save/open`) и строки UI-тестов не менялись; поведение не затронуто (только комментарии).
+- SECURITY.md: добавлена перекрёстная ссылка на `docs/PRIVACY.md`; OPERATIONS.md: к разделу backup добавлено, что retention/backups не очищаются автоматически и удаление строк не гарантирует физическое стирание.
+- Scan-проверки: private значения (`nip.io`, `hermes`, `138.249`, `madmaximuus`, `/home/<user>/`) отсутствуют во всех публичных документах; ссылки на внутренние планы и skills в публичных документах отсутствуют (удалять нечего); Unicode-скан Cyrillic по tracked-дереву (без внутренних каталогов `plans/`, `docs/plans/`, `ios/docs/plans/`, `ios/skills/`, `.pi/` и без OFL-файлов шрифтов — обязательные third-party license тексты) — чисто, дополнительные файлы не потребовались. Относительные ссылки во всех затронутых .md проверены — битых нет.
+- Screenshots: не регенерировались; парсинг PNG-чанков всех четырёх файлов показывает только IHDR/sRGB/eXIf/IDAT, eXIf — 68-байтовый минимальный TIFF-заголовок (resolution + dimensions, идентичен во всех файлах), без GPS/timestamps/software/device metadata; содержимое — детерминированные demo-данные (`tax.example.com`, `studio-mac`, `demo-iphone`, замаскированные ключи).
+- Валидация: `git diff --check` чистый; Xcode 26.6 Debug и Release simulator builds (`generic/platform=iOS Simulator`, `CODE_SIGNING_ALLOWED=NO`) — BUILD SUCCEEDED; accessibility identifiers и UI-test строки сверены grep’ом. Python/Node-проверки (ruff/pytest/npm) неприменимы: Python- и extension-код не менялся.
 
 ### Task 8: Исключить локальные материалы и включить постоянные safety checks
 

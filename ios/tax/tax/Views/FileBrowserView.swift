@@ -64,15 +64,15 @@ struct FileBrowserView: View {
     }
 }
 
-/// Карточка файла или папки: существующие типовые иконки в акцентной гамме,
-/// имя и путь в JetBrains Mono. Иконки технических директорий приглушены,
-/// но сами директории остаются видимыми, неотсортированными и доступными.
+/// File or folder card: existing standard icons in the accent palette,
+/// name and path in JetBrains Mono. Technical-directory icons are dimmed,
+/// but the directories themselves stay visible, unspecial-cased and accessible.
 private struct FileEntryCard: View {
     let entry: RemoteFileEntry
     let showsPath: Bool
 
-    /// Технические директории: dot-prefixed и перечисленные служебные папки.
-    /// Влияет только на оформление иконки — не на видимость, порядок или доступность.
+    /// Technical directories: dot-prefixed and listed service folders.
+    /// Affects only the icon styling — not visibility, ordering or accessibility.
     private var isTechnicalDirectory: Bool {
         guard entry.isDirectory else { return false }
         let technicalNames = ["__pycache__", "node_modules", "venv", "config", "configs"]
@@ -248,15 +248,15 @@ private struct RemoteTextEditorView: View {
 }
 
 private extension Text {
-    /// Рендеринг Markdown штатными средствами SwiftUI в палитре темы: основной текст
-    /// наследует Space Grotesk и `text-hi`, ссылки — светлый акцент, моноширинные
-    /// фрагменты (inline-код и блоки кода) — JetBrains Mono на поверхности `surface-2`.
+    /// Renders Markdown with native SwiftUI styled to the theme palette: body text
+    /// inherits Space Grotesk and `text-hi`, links use the light accent, and monospace
+    /// fragments (inline code and code blocks) use JetBrains Mono on the `surface-2` color.
     init(markdown source: String) {
         guard var attributed = try? AttributedString(markdown: source) else {
             self.init(verbatim: source)
             return
         }
-        // Сначала собираем диапазоны, затем применяем стили — мутация во время итерации недопустима.
+        // Collect ranges first, then apply styles — mutation during iteration is invalid.
         var codeRanges: [Range<AttributedString.Index>] = []
         for (intent, range) in attributed.runs[\.inlinePresentationIntent] {
             guard let intent, intent.contains(.code) else { continue }

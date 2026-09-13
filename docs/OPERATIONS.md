@@ -1,5 +1,45 @@
 # tax operations runbook
 
+## Backend deployment
+
+The backend runs as a systemd service behind a reverse proxy (primary variant) or as a Docker Compose container. Every deployment value comes from the private deployment configuration — `~/.config/tax/deploy.env` on the server, the file named by `TAX_DEPLOY_CONFIG`, or explicit environment variables; see [`LOCAL_CONFIGURATION.md`](LOCAL_CONFIGURATION.md) for the full contract. Deployment tooling validates the configuration and stops on missing or invalid values before touching SSH, Git, `sudo`, files, or services.
+
+### Systemd (primary)
+
+Prepare the server once:
+
+```bash
+ssh <your-host>
+mkdir -p ~/.config/tax
+cp /path/to/checkout/deploy.env.example ~/.config/tax/deploy.env
+chmod 600 ~/.config/tax/deploy.env
+# edit ~/.config/tax/deploy.env and fill in the real values
+git clone <your-repo-url> "$TAX_DEPLOY_PROJECT_DIR"
+```
+
+Then deploy from your machine, or from the server checkout directly:
+
+```bash
+./scripts/deploy-backend.sh   # from your machine; runs deploy.sh over SSH
+# or, on the server:
+cd "$TAX_DEPLOY_PROJECT_DIR" && git pull --ff-only origin main && ./deploy.sh
+```
+
+`deploy.sh` renders the systemd unit and reverse-proxy configuration from the private values (it refuses to install files with unresolved placeholders), creates a consistent online SQLite backup with an integrity check, installs backend dependencies from the generated `server/requirements.txt` with hash checking, restarts `tax.service`, and verifies `/health` and the database schema.
+
+### Docker Compose (alternative)
+
+From the checkout on the server:
+
+```bash
+cp server/.env.example server/.env   # then fill in real values; chmod 600 server/.env
+docker compose -f server/docker-compose.yml --env-file server/.env up -d --build
+```
+
+The container port is fixed at `8000`; the host loopback port (`TAX_DEPLOY_PORT`, default `8000`), the persistent data directory (`TAX_COMPOSE_DATA_DIR`) and the APNs key directory (`TAX_COMPOSE_KEYS_DIR`) are configurable. Keep the host port equal to the port your reverse proxy forwards to. Compose fails fast when `TAX_API_KEY` or the APNs variables are missing.
+
+The service must be reachable only on a loopback interface or a private network in front of your TLS-terminating reverse proxy; do not expose it directly to the Internet.
+
 ## Push status flow
 
 `push_status` is the only live delivery status for a notification task:
@@ -45,6 +85,8 @@ sqlite3 /data/tax.db 'PRAGMA integrity_check;'
 ```
 
 Restore only while the service is stopped, retain the previous database, then run `PRAGMA integrity_check` and `/health` before accepting traffic.
+
+Backups are plain SQLite copies and are not covered by the retention policy or any automatic cleanup; delete or expire them yourself. Deleting rows from the live database is not a guaranteed physical erase either — see [`PRIVACY.md`](PRIVACY.md).
 
 ## Credential rotation
 
