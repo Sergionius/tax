@@ -20,6 +20,14 @@ keys/
 
 # Local private configuration (owner-only, never commit)
 ios/Config/Local.xcconfig
+
+# Local skills and internal plans (owner-only, never commit).
+# Keep the files on disk; they stay out of the published set.
+.pi/
+plans/
+docs/plans/
+ios/docs/plans/
+ios/skills/
 # Tracked example files stay visible despite the *.env rule above.
 !deploy.env.example
 !server/.env.example

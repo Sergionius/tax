@@ -5,6 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 UV_BIN="${UV_BIN:-uv}"
 
+# Dedicated per-run output directory. Only preflight's own temporary data
+# inside it is removed; shared directories such as dist/ or build/ are
+# never touched.
+PREFLIGHT_TMP="$(mktemp -d "${TMPDIR:-/tmp}/tax-preflight.XXXXXXXX")"
+trap 'rm -rf "$PREFLIGHT_TMP"' EXIT
+
 if ! command -v "$UV_BIN" >/dev/null 2>&1; then
   echo "uv is required for the Python checks (see README for install instructions)" >&2
   exit 1
@@ -25,22 +31,36 @@ echo "== Python lint and tests (locked sync) =="
 "$UV_BIN" run --locked --extra dev ruff check server src tests
 "$UV_BIN" run --locked --extra dev pytest -q
 
+echo "== Public tree check =="
+# Covers the tracked snapshot only (git ls-files); ignored local files are
+# never read, and Git history is not validated.
+python3 scripts/check-public-tree.py
+
+echo "== Extension tests (Node) =="
+if command -v npm >/dev/null 2>&1; then
+  npm test
+else
+  echo "ℹ️  npm unavailable; extension tests skipped"
+fi
+
 echo "== Build package =="
-rm -rf dist build
-"$UV_BIN" build
-TMP_VENV="$(mktemp -d)/venv"
-python3 -m venv "$TMP_VENV"
-"$TMP_VENV/bin/pip" --quiet install dist/*.whl
-"$TMP_VENV/bin/tax" --help >/dev/null
-"$TMP_VENV/bin/tax" notify --help >/dev/null
-"$TMP_VENV/bin/tax" run --help >/dev/null
-"$TMP_VENV/bin/tax" remote-host --help >/dev/null
+BUILD_OUT="$PREFLIGHT_TMP/dist"
+"$UV_BIN" build --out-dir "$BUILD_OUT"
+VENV_DIR="$PREFLIGHT_TMP/venv"
+python3 -m venv "$VENV_DIR"
+"$VENV_DIR/bin/pip" --quiet install "$BUILD_OUT"/*.whl
+"$VENV_DIR/bin/tax" --help >/dev/null
+"$VENV_DIR/bin/tax" notify --help >/dev/null
+"$VENV_DIR/bin/tax" run --help >/dev/null
+"$VENV_DIR/bin/tax" remote-host --help >/dev/null
 
 if command -v xcodebuild >/dev/null && [[ -f ios/tax/tax.xcodeproj/project.pbxproj ]]; then
   IOS_DESTINATION="${IOS_DESTINATION:-platform=iOS Simulator,name=iPhone 17}"
-  IOS_RESULT_DIR="${IOS_RESULT_DIR:-$ROOT_DIR/tmp/ios-preflight}"
-  rm -rf "$IOS_RESULT_DIR"
+  # Default result directory lives inside the per-run temporary directory;
+  # an explicit IOS_RESULT_DIR is used as-is and never deleted wholesale.
+  IOS_RESULT_DIR="${IOS_RESULT_DIR:-$PREFLIGHT_TMP/ios-results}"
   mkdir -p "$IOS_RESULT_DIR"
+  rm -rf "$IOS_RESULT_DIR/unit-tests.xcresult" "$IOS_RESULT_DIR/ui-tests.xcresult"
 
   echo "== iOS release metadata =="
   test -n "$(find ios/tax/tax/Assets.xcassets/AppIcon.appiconset -type f -name '*.png' -print -quit)"
@@ -83,8 +103,8 @@ if command -v xcodebuild >/dev/null && [[ -f ios/tax/tax.xcodeproj/project.pbxpr
       -resultBundlePath "$IOS_RESULT_DIR/ui-tests.xcresult"
   fi
 
-  "$ROOT_DIR/scripts/release-notes.sh" > "$IOS_RESULT_DIR/release-notes.md"
-  echo "Release notes: $IOS_RESULT_DIR/release-notes.md"
+  echo "== Release notes (since previous tag) =="
+  "$ROOT_DIR/scripts/release-notes.sh" | tee "$IOS_RESULT_DIR/release-notes.md"
 else
   echo "ℹ️  Xcode unavailable; iOS checks skipped"
 fi
