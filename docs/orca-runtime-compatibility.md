@@ -60,7 +60,7 @@ The probe dynamically loads protocol helpers shipped by the installed Orca build
 
 Control operations use authenticated local Runtime RPC. Terminal subscriptions use the packaged `orca-runtime-terminal-bridge.cjs`, which maintains Orca's E2EE WebSocket and multiplexes snapshot, incremental output, input, resize, and resnapshot frames. The bridge is shipped inside the Python wheel; `scripts/orca-runtime-terminal-bridge.cjs` is a development wrapper.
 
-The adapter requires a dedicated Orca pairing code for streaming. Create it through Orca's pairing UI and save it in a mode-0600 file. Do not copy tokens directly from Orca's private device registry. This credential authenticates tax-agent to the local Orca Runtime and is separate from the tax E2EE key introduced in Phase 2.
+The adapter requires a dedicated Orca pairing code for streaming. Create it through Orca's pairing UI and save it in a mode-0600 file. Do not copy tokens directly from Orca's private device registry. This credential authenticates `tax remote-host` to the local Orca Runtime and is separate from the tax E2EE key introduced in Phase 2.
 
 Mutating one-shot RPC calls are never retried because a disconnected response has an ambiguous outcome. Read-only calls use bounded exponential backoff. Stream reconnect belongs to the remote host lifecycle: discard the old generation and request a fresh subscription/snapshot rather than replaying input.
 

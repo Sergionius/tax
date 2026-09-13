@@ -1,7 +1,7 @@
 [project]
 name = "tax"
-version = "0.3.2"
-description = "Task Agent eXchange — push notifications and remote reply for AI agents"
+version = "0.4.0"
+description = "Task Agent eXchange — push notifications and remote Orca workspaces"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}

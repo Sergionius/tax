@@ -192,6 +192,24 @@ export TAX_HOST_ID=mac-main
 
 При нажатии push приложение открывает соответствующий Mac, workspace или terminal. Устаревший task/reply UI удалён.
 
+## Завершение команд: `tax run`
+
+`tax run` превращает любую команду в уведомление о завершении. Например, на Mac:
+
+```bash
+tax run pytest -q
+```
+
+Как это работает:
+
+- команда запускается напрямую, без shell; stdout и stderr объединяются и стримятся в текущий терминал;
+- после завершения процесса отправляется ровно один completion push: title строится из имени executable (`pytest completed` либо `pytest failed`), body содержит exit code, `context` — исходную команду, а `logs` — последние 500 строк вывода;
+- в metadata уходят `source=tax-cli`, `app=tax`, имя executable в поле `agent`, Host ID из `TAX_HOST_ID` (по умолчанию `mac-main`) и Orca routing-поля `ORCA_TERMINAL_HANDLE`, `ORCA_WORKTREE_ID` (с fallback на `ORCA_WORKSPACE_ID`), `ORCA_TAB_ID`, `ORCA_PANE_KEY`;
+- `tax run` возвращает исходный exit code команды; сбой доставки push его не меняет, retries и ожидания ответа нет — уведомление однонаправленное;
+- device token хранится на backend: iPhone регистрирует его кнопкой **Request Push Registration**, и если в `tax config` токен не задан, backend использует последнюю регистрацию.
+
+При отсутствии `ORCA_TERMINAL_HANDLE` push по-прежнему отправляется, но на iPhone он откроет только настроенный host без конкретного терминала.
+
 ## Claude Code and Codex notifications
 
 TAX can send the same terminal-aware completion notifications for Pi, Claude Code, and Codex. Pi continues to use `extensions/tax-push.ts`; enabling the hooks below does not change or replace the Pi extension.
@@ -260,6 +278,15 @@ git pull --ff-only origin main
 Deploy создаёт backup SQLite, обновляет зависимости, перезапускает `tax.service`, проверяет health и schema.
 
 Эксплуатационные инструкции: [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+## Upgrading from versions before 0.4.0
+
+Legacy reply-механика удалена: CLI больше не запускает фонового агента и не ждёт ответа с iPhone. При обновлении через `./scripts/install.sh`:
+
+- установщик снимает только LaunchAgent `tax.agent` (`gui/$UID/tax.agent` и `~/Library/LaunchAgents/tax.agent.plist`);
+- remote-host и его LaunchAgent не затрагиваются и продолжают работать как раньше;
+- старые SQLite-колонки backend-базы физически сохраняются (additive migration), но приложение больше не читает и не пишет их; история задач отдаёт только публичную проекцию без legacy полей;
+- локальные данные на Mac — `agent.db`, журналы и `tasks.jsonl` — сохраняются и больше не используются; удалять их вручную не требуется.
 
 ## Проверки разработки
 

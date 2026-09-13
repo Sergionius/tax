@@ -1,7 +1,7 @@
 # Backend Plan — tax
 
 ## Goal
-Support push filtering by app/source, store device preferences, and expose the existing reply endpoints for the Mac agent.
+Support push filtering by app/source and store device preferences.
 
 ## Changes to `server/main.py`
 
@@ -18,7 +18,6 @@ class PushPayload(BaseModel):
     source: Optional[str] = ""
     agent: Optional[str] = ""
     app: Optional[str] = ""
-    agterm_session_id: Optional[str] = ""
 ```
 
 ### 2. Extend `DeviceTokenPayload` with preferences
@@ -56,7 +55,6 @@ Add columns to `tasks`:
 - `source TEXT`
 - `agent TEXT`
 - `app TEXT`
-- `agterm_session_id TEXT`
 
 Or store them as JSON in a `meta` column.
 
@@ -77,5 +75,4 @@ Keep detailed logging already added. Ensure new fields are logged.
 - `POST /push` with `app: "tax"` sends APNs when device is in `tax` mode.
 - `POST /push` with `app: "tax"` is skipped when device is in `off` mode.
 - `POST /register-device` stores `preferences`.
-- `GET /task/{id}/reply?wait=true` still works for the Mac agent.
 - `/push` returns `task_id` and stores metadata.
