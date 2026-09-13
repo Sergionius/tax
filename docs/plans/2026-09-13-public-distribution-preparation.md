@@ -124,6 +124,7 @@
 - Modify: `server/docker-compose.yml`
 - Modify: `server/Dockerfile`
 - Modify: `deploy.env.example`
+- Modify: `.github/workflows/python.yml`
 - Create: `scripts/deploy-config.sh`
 - Create: `tests/test_deploy_configuration.py`
 
@@ -139,7 +140,14 @@
 - [ ] Исправить Dockerfile: включить `relay.py` и остальные backend runtime modules; использовать locked requirements с проверкой hashes.
 - [ ] Добавить безопасный режим проверки/render configuration без SSH, service commands и применения конфигурации.
 - [ ] Покрыть Pytest-проверками precedence, отсутствие required values, неверные значения и согласованность портов. Использовать только временные каталоги и fake executables, без реального SSH/systemd.
-- [ ] Проверить Docker configuration и импорт backend в собранном образе без реальных APNs credentials.
+- [ ] Добавить в `.github/workflows/python.yml` отдельный `container` job на GitHub-hosted `ubuntu-latest` вместо обязательной локальной Docker-проверки.
+- [ ] Зафиксировать шаги `container` job: проверить availability Docker и Compose, выполнить Compose configuration validation с synthetic environment, собрать backend image и запустить в нём `python -c 'import main, relay, storage, apns'`.
+- [ ] Для import smoke использовать `--network none`, без host mounts, без реальных credentials и без запуска backend service.
+- [ ] Synthetic Compose environment создавать во временном каталоге и передавать явно через `--env-file`; не читать owner `.env`.
+- [ ] Дополнить path filters workflow путями `deploy.sh`, `reinstall-backend.sh`, `Caddyfile`, `deploy.env.example`, `scripts/deploy-backend.sh`, `scripts/deploy-config.sh`; сохранить существующие server/tests/lock triggers.
+- [ ] Не устанавливать Docker на Mac и не добавлять сторонние Actions для контейнерной проверки.
+- [ ] Определить обязательную локальную валидацию Task 3: shell syntax (`bash -n` изменённых скриптов), Ruff, Pytest с synthetic deployment fixtures, standalone backend imports в существующем Python-окружении и `git diff --check`. Локальные imports и проверки шаблонов не заменяют Compose validation и выполнение собранного образа.
+- [ ] Разрешить локальное завершение Task 3 после реализации CI job и успешных применимых локальных проверок; отсутствие Docker само по себе не является причиной `TASK_FAILED`. До появления успешного `container` job контейнерная проверка записывается как «не выполнена локально; результат CI не подтверждён».
 
 ### Task 4: Удалить private backend defaults и обезличить iOS signing
 
@@ -316,7 +324,7 @@ git diff --check
 - Сборка sdist/wheel во временный output directory и существующий clean-wheel smoke.
 - `bash -n` для `deploy.sh`, `reinstall-backend.sh` и всех `scripts/*.sh`.
 - Deployment configuration tests только с synthetic config и fake external commands.
-- `docker compose ... config` с fixture environment; сборка образа и импорт `main`, `relay`, `storage`, `apns` без запуска production services.
+- Контейнерная проверка выполняется в CI `container` job (GitHub-hosted `ubuntu-latest`): `docker compose ... config` с synthetic environment; сборка образа и импорт `main`, `relay`, `storage`, `apns` без запуска production services. Локальная Docker-валидация не требуется; локальные imports и проверки шаблонов не заменяют Compose validation и выполнение собранного образа.
 - Проверка Xcode settings с отсутствующим и synthetic `Local.xcconfig`.
 - Debug и Release simulator builds:
 
@@ -341,7 +349,7 @@ xcodebuild build \
 
 - Без явной настройки CLI, extension и iPhone не обращаются к инфраструктуре владельца.
 - Private owner configuration сохранена отдельно и не включена в tracked/package files; существующие Keychain identities не изменены.
-- Systemd и Docker Compose используют согласованные configurable ports/paths; Docker backend импортируется успешно.
+- Systemd и Docker Compose используют согласованные configurable ports/paths; итоговая готовность проекта подтверждается успешным контейнерным CI `container` job (Compose validation и импорт backend в собранном образе), а не локальной проверкой без Docker.
 - Runtime/dev dependencies воспроизводятся из `uv.lock`; exported requirements актуальны и содержат hashes.
 - `context/logs` по умолчанию не сохраняются и очищаются в существующей базе; opt-in работает.
 - Tasks старше установленного срока автоматически удаляются; device registrations сохраняются.
