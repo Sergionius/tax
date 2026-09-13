@@ -64,6 +64,12 @@ The adapter requires a dedicated Orca pairing code for streaming. Create it thro
 
 Mutating one-shot RPC calls are never retried because a disconnected response has an ambiguous outcome. Read-only calls use bounded exponential backoff. Stream reconnect belongs to the remote host lifecycle: discard the old generation and request a fresh subscription/snapshot rather than replaying input.
 
+## Distribution and compatibility
+
+TAX distributes only its own adapter code: `src/tax/orca_runtime.py` and the bundled terminal bridge (`src/tax/resources/orca-runtime-terminal-bridge.cjs`). Orca protocol helpers (`shared/pairing.js`, `shared/remote-runtime-client.js`, `shared/terminal-stream-protocol.js`) are not packaged; the bridge and the probe load them at runtime from the user's installed Orca build.
+
+The adapter depends on a compatible installed Orca version. The pinned-build table above records the only version combinations that have actually been verified; nothing else is guaranteed to work. The private Orca protocol is not a stable interface: any Orca release may rename methods, change framing, or move helpers, and TAX makes no promise of stability for it. A missing helper or an incompatible wire contract must fail as an explicit compatibility error, and after every Orca update the smoke test below must be re-run.
+
 ## Update smoke test
 
 After every Orca update:

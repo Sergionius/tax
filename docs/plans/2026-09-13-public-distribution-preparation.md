@@ -253,15 +253,27 @@
 - Modify: `ios/tax/tax/Assets.xcassets/AppIcon.appiconset/Contents.json`
 - Rename: `ios/tax/tax/Assets.xcassets/AppIcon.appiconset/93f1c78a-7390-4223-9806-bf65edab19c3 1.png` → `ios/tax/tax/Assets.xcassets/AppIcon.appiconset/AppIcon.png`
 
-- [ ] Добавить MIT license для TAX с public identity `Sergionius`; заменить персональное имя в Python author metadata.
-- [ ] Использовать стандартный SPDX expression и включить license file в sdist/wheel; при необходимости синхронно обновить build backend и lock.
-- [ ] Добавить security policy для текущей линии `0.4.x`: private reporting через GitHub Security Advisories, без публикации уязвимостей и credentials в issues. Не утверждать, что reporting уже включён в будущем repository.
-- [ ] Зафиксировать подтверждённое владельцем право распространения App Icon; переименовать asset без изменения изображения.
-- [ ] Сохранить существующие OFL files рядом с JetBrains Mono и Space Grotesk.
-- [ ] Добавить attribution и применимые notices для используемой версии SwiftTerm и Orca integration.
-- [ ] Проверить bridge на включённый upstream code: TAX распространяет собственный adapter, а Orca helpers загружаются из пользовательской установки. Не включать извлечённые модули Orca в package.
-- [ ] Для обнаруженных заимствованных фрагментов сохранить обязательные license notices; при неустановленном происхождении не объявлять подготовку завершённой.
-- [ ] Документировать зависимость adapter от совместимой установленной версии Orca без обещания стабильности приватного протокола.
+- [x] Добавить MIT license для TAX с public identity `Sergionius`; заменить персональное имя в Python author metadata.
+- [x] Использовать стандартный SPDX expression и включить license file в sdist/wheel; при необходимости синхронно обновить build backend и lock.
+- [x] Добавить security policy для текущей линии `0.4.x`: private reporting через GitHub Security Advisories, без публикации уязвимостей и credentials в issues. Не утверждать, что reporting уже включён в будущем repository.
+- [x] Зафиксировать подтверждённое владельцем право распространения App Icon; переименовать asset без изменения изображения.
+- [x] Сохранить существующие OFL files рядом с JetBrains Mono и Space Grotesk.
+- [x] Добавить attribution и применимые notices для используемой версии SwiftTerm и Orca integration.
+- [x] Проверить bridge на включённый upstream code: TAX распространяет собственный adapter, а Orca helpers загружаются из пользовательской установки. Не включать извлечённые модули Orca в package.
+- [x] Для обнаруженных заимствованных фрагментов сохранить обязательные license notices; при неустановленном происхождении не объявлять подготовку завершённой.
+- [x] Документировать зависимость adapter от совместимой установленной версии Orca без обещания стабильности приватного протокола.
+
+### Task 6 execution notes
+
+- Создан `LICENSE` (MIT, `Copyright (c) 2026 Sergionius`). `SECURITY.md`: поддерживаемая линия `0.4.x`, private reporting через GitHub Security Advisories, прямой запрет публиковать уязвимости/credentials в issues; заявление о том, что reporting уже включён в будущем repository, отсутствует.
+- `THIRD_PARTY_NOTICES.md`: право распространения App Icon зафиксировано как подтверждённое владельцем; attribution для SwiftTerm **1.20.0** (точная версия из `project.pbxproj`, MIT с полным copyright-блоком Miguel de Icaza / xterm.js authors / SourceLair / Christopher Jeffrey — сверено с LICENSE локального SPM checkout) и для JetBrains Mono + Space Grotesk (OFL 1.1) со ссылками на существующие `*OFL.txt` рядом с шрифтами (файлы не перемещались и не менялись); раздел про Orca integration — код Orca не бандлится и не ре-дистрибутируется.
+- `pyproject.toml`: `license = "MIT"` (SPDX expression, PEP 639) + `license-files = ["LICENSE"]`, author → `Sergionius`. Build backend не потребовал обновления: pinned `hatchling==1.32.0` поддерживает PEP 639 (с 1.26.0). Проверено сборкой: wheel содержит `tax-0.4.0.dist-info/licenses/LICENSE` и `License-Expression: MIT` / `License-File: LICENSE` / `Author: Sergionius`; sdist содержит `tax-0.4.0/LICENSE`.
+- `uv.lock` и `server/requirements.txt` не потребовали изменений: `uv lock --check` проходит после изменения pyproject (автор/license не входят в lock), повторный export побайтно совпадает с tracked requirements (кроме строки header с путём вывода — известное ожидаемое отличие).
+- App Icon: `git mv` `93f1c78a-…1.png` → `AppIcon.png` (md5 не изменился — изображение нетронуто), `Contents.json` обновлён; других ссылок на старое имя файла нет.
+- Bridge-аудит: `src/tax/resources/orca-runtime-terminal-bridge.cjs` и `scripts/orca-runtime-probe.cjs` используют только node built-ins плюс единственный динамический `require()` из установленного Orca (`shared/pairing.js`, `shared/remote-runtime-client.js`, `shared/terminal-stream-protocol.js`); состав wheel — только first-party модули, bridge, LICENSE и метаданные; извлечённых модулей Orca в package нет.
+- Заимствованных фрагментов в first-party коде (`src/`, `server/`, `extensions/`, `ios/tax/tax/`) не обнаружено (grep по copyright/license-заголовкам); обязательные notices записаны для реального third-party материала (SwiftTerm, шрифты). Подготовка в части заимствований объявляется завершённой на основании этого скана.
+- `docs/orca-runtime-compatibility.md`: добавлен раздел «Distribution and compatibility» — TAX распространяет только собственный adapter/bridge, helpers грузятся из установленного Orca; adapter зависит от совместимой установленной версии (только проверенные combinations из pinned-build table), приватный протокол не является стабильным интерфейсом, гарантии стабильности отсутствуют, после обновления Orca обязателен повторный smoke test.
+- Валидация: `uv lock --check`; `uv sync --locked --extra dev`; `uv run --locked --extra dev ruff check server src tests`; `uv run --locked --extra dev pytest -q` — 182 passed (без изменений к базовому коммиту; единственный warning — существующий starlette/anyio DeprecationWarning); `uv build` во временный каталог + проверка наличия LICENSE в sdist/wheel и SPDX-метаданных; повторный export vs tracked requirements — идентично (кроме header-строки с путём); `git diff --check`; Xcode Debug simulator build (`generic/platform=iOS Simulator`, `CODE_SIGNING_ALLOWED=NO`) — BUILD SUCCEEDED, в собранном `tax.app` присутствуют скомпилированные `AppIcon60x60@2x.png`/`AppIcon76x76@2x~ipad.png` (actool скомпилировал переименованный asset; Release использует тот же asset catalog и actool-пайплайн). npm/shell-проверки не применимы: extension-код и скрипты не менялись. Grep-скан изменённых файлов на personal identifiers — чисто.
 
 ### Task 7: Перевести публичные материалы и описать реальные privacy guarantees
 
