@@ -18,6 +18,41 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.pushMode, .off)
     }
 
+    func testDefaultsToEmptyServerURLWhenNothingIsSaved() {
+        let store = SettingsStore(preferences: PreferencesMock(), keychain: KeychainMock())
+
+        XCTAssertEqual(store.serverURL, "")
+        XCTAssertNil(store.configuredService)
+        XCTAssertNil(store.remoteConfiguration)
+    }
+
+    func testUnconfiguredStoreCreatesNoServiceAndSendsNoRegistration() async {
+        let factory = ServiceFactoryRecorder()
+        let store = SettingsStore(
+            preferences: PreferencesMock(values: ["tax.deviceToken": "token-1"]),
+            keychain: KeychainMock(),
+            serviceFactory: factory.make
+        )
+
+        try? await store.registerSavedDeviceToken()
+
+        XCTAssertEqual(factory.creationCount, 0)
+        XCTAssertNil(store.configuredService)
+    }
+
+    func testInvalidServerURLDoesNotCreateServiceEvenWithKey() {
+        let factory = ServiceFactoryRecorder()
+        let store = SettingsStore(
+            preferences: PreferencesMock(values: ["tax.serverURL": "not a server"]),
+            keychain: KeychainMock(values: ["tax.apiKey": "key"]),
+            serviceFactory: factory.make
+        )
+
+        XCTAssertNil(store.configuredService)
+        XCTAssertNil(store.remoteConfiguration)
+        XCTAssertEqual(factory.creationCount, 0)
+    }
+
     func testSavesAPIKeyOnlyToKeychainAndPreferencesSeparately() {
         let preferences = PreferencesMock()
         let keychain = KeychainMock()
@@ -102,6 +137,20 @@ final class SettingsStoreTests: XCTestCase {
         )
         store.serverURL = "not a server"
         XCTAssertNil(store.configuredService)
+    }
+
+    func testKeepsExplicitlySetServerURLAndUsesItForServices() {
+        let preferences = PreferencesMock()
+        let keychain = KeychainMock(values: ["tax.apiKey": "key"])
+        let store = SettingsStore(preferences: preferences, keychain: keychain)
+
+        store.serverURL = "https://server.example"
+        XCTAssertTrue(store.save())
+        XCTAssertEqual(preferences.values["tax.serverURL"], "https://server.example")
+        XCTAssertNotNil(store.configuredService)
+
+        let reloaded = SettingsStore(preferences: preferences, keychain: keychain)
+        XCTAssertEqual(reloaded.serverURL, "https://server.example")
     }
 }
 

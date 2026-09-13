@@ -31,6 +31,16 @@ struct RemoteConfiguration: Sendable {
     let e2eeKey: String
 }
 
+/// Neutral OSLog subsystem derived from the app identity; private overrides
+/// in Local.xcconfig change the bundle identifier without touching this code.
+enum AppLog {
+    static let subsystem = Bundle.main.bundleIdentifier ?? "com.example.tax"
+
+    static func logger(category: String) -> Logger {
+        Logger(subsystem: subsystem, category: category)
+    }
+}
+
 @MainActor
 @Observable
 final class SettingsStore {
@@ -60,7 +70,7 @@ final class SettingsStore {
     @ObservationIgnored private let preferences: any PreferencesStoring
     @ObservationIgnored private let serviceFactory: ServiceFactory
     @ObservationIgnored private var cachedService: (any DeviceRegistering)?
-    @ObservationIgnored private let logger = Logger(subsystem: "ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp", category: "SettingsStore")
+    @ObservationIgnored private let logger = AppLog.logger(category: "SettingsStore")
 
     private var normalizedAPIKey: String {
         apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -75,7 +85,7 @@ final class SettingsStore {
         preferences = UserDefaultsPreferences(defaults: defaults)
         self.serviceFactory = serviceFactory
         apiKey = ""
-        serverURL = preferences.string(forKey: serverURLKey) ?? "https://tax.138-249-127-23.nip.io"
+        serverURL = preferences.string(forKey: serverURLKey) ?? ""
         deviceToken = preferences.string(forKey: deviceTokenKey) ?? ""
         pushMode = preferences.string(forKey: pushModeKey).flatMap(PushMode.init(rawValue:)) ?? .taxOnly
         hostID = preferences.string(forKey: hostIDKey) ?? "mac-main"
@@ -89,7 +99,9 @@ final class SettingsStore {
         } catch {
             lastSaveError = error.localizedDescription
         }
-        logger.info("Loaded settings: apiKeyPresent=\(!self.apiKey.isEmpty), apiKeyLength=\(self.apiKey.count), serverURL=\(self.serverURL, privacy: .public)")
+        // Never log the configured server URL: it is part of the owner's
+        // private infrastructure.
+        logger.info("Loaded settings: apiKeyPresent=\(!self.apiKey.isEmpty), apiKeyLength=\(self.apiKey.count), serverURLPresent=\(!self.serverURL.isEmpty)")
     }
 
     init(
@@ -101,7 +113,7 @@ final class SettingsStore {
         self.preferences = preferences
         self.serviceFactory = serviceFactory
         apiKey = ""
-        serverURL = preferences.string(forKey: serverURLKey) ?? "https://tax.138-249-127-23.nip.io"
+        serverURL = preferences.string(forKey: serverURLKey) ?? ""
         deviceToken = preferences.string(forKey: deviceTokenKey) ?? ""
         pushMode = preferences.string(forKey: pushModeKey).flatMap(PushMode.init(rawValue:)) ?? .taxOnly
         hostID = preferences.string(forKey: hostIDKey) ?? "mac-main"

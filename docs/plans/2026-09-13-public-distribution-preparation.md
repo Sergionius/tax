@@ -180,21 +180,33 @@
 - Create: `ios/Config/Public.xcconfig`
 - Delete: `ios/tax/tax.xcodeproj/project.pbxproj.bak`
 
-- [ ] Убрать backend URL по умолчанию из CLI и Pi extension; `https://tax.example.com` оставить только в help/examples/mock fixtures.
-- [ ] Сохранить существующий CLI precedence: явный command argument, затем непустое значение config, затем environment. Отсутствие адреса или некорректный URL не должно приводить к сетевому запросу.
-- [ ] Команды, которым нужен backend, должны возвращать понятную configuration error без traceback.
-- [ ] Сохранить best-effort поведение Claude/Codex hooks и Pi extension: отсутствующая конфигурация пропускает push, не ломая работу агента.
-- [ ] Не менять выполнение `tax run`: configuration preflight остаётся до запуска команды; после запуска delivery failure не меняет exit code дочернего процесса.
-- [ ] В обеих initializers `SettingsStore` использовать пустой server URL при отсутствии сохранённого значения; сохранить существующие preferences и Keychain keys.
-- [ ] Проверить, что ненастроенное приложение не создаёт relay connection и не отправляет device registration.
-- [ ] Заменить private URL в UI-test defaults нейтральным mock URL; сохранить Debug-only screenshot fixtures и запрет live networking в screenshot mode.
-- [ ] В `Public.xcconfig` задать `com.example.tax`, `com.example.tax.tests`, `com.example.tax.uitests` и пустую signing team; подключить optional `Local.xcconfig`.
-- [ ] Привязать все Debug/Release project/target configurations к новым variables, удалив inline values, которые перекрывают xcconfig.
-- [ ] Сохранить owner bundle IDs/team через private override, не меняя entitlements, Keychain service names или app identity владельца.
-- [ ] Вычислять OSLog subsystem из `Bundle.main.bundleIdentifier` с нейтральным fallback; не логировать configured server URL публично.
-- [ ] Обновить preflight: проверять configurable signing contract вместо персонального bundle ID.
-- [ ] Добавить regression coverage отсутствующей конфигурации и сохранения явно заданных значений.
-- [ ] Проверить Debug/Release simulator build без local override и разрешение synthetic override через Xcode build settings.
+- [x] Убрать backend URL по умолчанию из CLI и Pi extension; `https://tax.example.com` оставить только в help/examples/mock fixtures.
+- [x] Сохранить существующий CLI precedence: явный command argument, затем непустое значение config, затем environment. Отсутствие адреса или некорректный URL не должно приводить к сетевому запросу.
+- [x] Команды, которым нужен backend, должны возвращать понятную configuration error без traceback.
+- [x] Сохранить best-effort поведение Claude/Codex hooks и Pi extension: отсутствующая конфигурация пропускает push, не ломая работу агента.
+- [x] Не менять выполнение `tax run`: configuration preflight остаётся до запуска команды; после запуска delivery failure не меняет exit code дочернего процесса.
+- [x] В обеих initializers `SettingsStore` использовать пустой server URL при отсутствии сохранённого значения; сохранить существующие preferences и Keychain keys.
+- [x] Проверить, что ненастроенное приложение не создаёт relay connection и не отправляет device registration.
+- [x] Заменить private URL в UI-test defaults нейтральным mock URL; сохранить Debug-only screenshot fixtures и запрет live networking в screenshot mode.
+- [x] В `Public.xcconfig` задать `com.example.tax`, `com.example.tax.tests`, `com.example.tax.uitests` и пустую signing team; подключить optional `Local.xcconfig`.
+- [x] Привязать все Debug/Release project/target configurations к новым variables, удалив inline values, которые перекрывают xcconfig.
+- [x] Сохранить owner bundle IDs/team через private override, не меняя entitlements, Keychain service names или app identity владельца.
+- [x] Вычислять OSLog subsystem из `Bundle.main.bundleIdentifier` с нейтральным fallback; не логировать configured server URL публично.
+- [x] Обновить preflight: проверять configurable signing contract вместо персонального bundle ID.
+- [x] Добавить regression coverage отсутствующей конфигурации и сохранения явно заданных значений.
+- [x] Проверить Debug/Release simulator build без local override и разрешение synthetic override через Xcode build settings.
+
+### Task 4 execution notes
+
+- `src/tax/cli.py`: `DEFAULT_SERVER` удалён; `get_server` возвращает непустое значение config, затем `TAX_SERVER`, иначе пустую строку. Новый `require_server(config, override)` проверяет presence и схему http(s) до любых сетевых вызовов и используется в `run` (preflight до запуска child-команды), `status`, `push-doctor`, `remote-host`, `remote-smoke` (explicit `--server` wins) и `doctor` (backend-check не падает с traceback при отсутствии URL). Порядок проверок сохранён: сначала API key, затем server. Ошибки конфигурации выводятся одной строкой `[tax] error: ...` без traceback.
+- `src/tax/agent_notifications.py`: hook пропускает push при отсутствии server/API key и при не-http(s) URL; `TAX_SERVER` учитывается в env-fallback. Exit code 0 и no-op при отсутствии конфигурации сохранены.
+- `extensions/tax-push.ts`: дефолтный URL на module load удалён; endpoint вычисляется из `TAX_SERVER` в момент `agent_settled`, без переменной — push пропускается с warning, как и при отсутствии API key/terminal handle.
+- iOS: оба initializer `SettingsStore` используют пустой `serverURL` по умолчанию (ключи preferences/Keychain не менялись); пустой/некорректный URL даёт `configuredService == nil`, `remoteConfiguration == nil` и no-op `registerSavedDeviceToken` (без создания сервиса и без relay-подключения — guard в `RemoteWorkspaceStore.connect` сохранён). OSLog subsystem вычисляется через `AppLog` (`Bundle.main.bundleIdentifier` с fallback `com.example.tax`); server URL больше не логируется (заменён на `serverURLPresent`). Screenshot fixtures остались Debug-only, live networking в screenshot mode по-прежнему запрещён (`RemoteWorkspaceStore`/`MockDeviceRegistrationService`).
+- `AppEnvironment.swift` и `TaxUITests.swift`: private URL в UI-test defaults заменён на `https://tax.example.com`; реальный URL передаётся только явно (`--mock-server-url` / `TAX_UI_SERVER`).
+- Создан `ios/Config/Public.xcconfig`: нейтральные defaults (`com.example.tax`, `com.example.tax.tests`, `com.example.tax.uitests`, пустая team), `#include? "Local.xcconfig"` для приватного override, маппинг `DEVELOPMENT_TEAM = $(TAX_DEVELOPMENT_TEAM)`. В `project.pbxproj` все 8 Debug/Release configurations (2 project + 6 target) получили `baseConfigurationReference`; inline `DEVELOPMENT_TEAM`/`PRODUCT_BUNDLE_IDENTIFIER` удалены и заменены ссылками на `$(TAX_*)`-переменные; bundle IDs не встречаются в tracked iOS-файлах. `project.pbxproj.bak` удалён. Entitlements, Info.plist, Keychain keys (`tax.apiKey`, `tax.remoteE2EEKey`) и xcscheme не менялись.
+- `scripts/preflight.sh`: проверка персонального bundle ID заменена на контракт — наличие `Public.xcconfig`, всех 4 переменных, optional include, привязки всех configurations через `baseConfigurationReference` и ссылок на `$(TAX_*)` в pbxproj; приватные значения в preflight не встраиваются. `server/.env.example`: `TAX_APNS_BUNDLE_ID` помечен как привязанный к `TAX_APP_BUNDLE_IDENTIFIER` из `Local.xcconfig`.
+- Regression coverage: +17 Pytest-проверок (precedence/пустой config/env, отклонение невалидных URL без сети, config-ошибки `status`/`run`/`push-doctor` без запуска child-процесса, сохранение явно заданного server, best-effort hooks) и +3 Node-теста (skip без `TAX_SERVER`, per-event endpoint, существующие сценарии на lazy resolution); +5 XCTest в `SettingsStoreTests` (пустой дефолт, отсутствие сервиса/регистрации, невалидный URL с key, сохранение и reload явно заданного URL).
+- Валидация: `bash -n scripts/preflight.sh`; `uv lock --check`; `uv sync --locked --extra dev`; `uv run --locked --extra dev ruff check server src tests`; `uv run --locked --extra dev pytest -q` — 165 passed (148 на базовом коммите + 17 новых; единственный warning — существующий starlette/anyio DeprecationWarning); `npm test` — 19 passed (16 + 3 новых); `git diff --check`. Xcode 26.6: Debug и Release simulator builds (`generic/platform=iOS Simulator`, `CODE_SIGNING_ALLOWED=NO`) без `Local.xcconfig` (временно перемещён и восстановлен с правами 0600) и Debug build с synthetic override (`TAX_APP_BUNDLE_IDENTIFIER`/`TAX_DEVELOPMENT_TEAM` через command-line build settings); `xcodebuild -showBuildSettings` при восстановленном `Local.xcconfig` подтверждает, что team resolves непустым и bundle ID равен app-значению владельца (проверено без печати значений). Grep-скан всех изменённых файлов на private identifiers — чисто.
 
 ### Task 5: Ввести opt-in content storage и автоматическую retention
 

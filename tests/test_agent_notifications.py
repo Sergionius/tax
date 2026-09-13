@@ -123,6 +123,61 @@ def test_hook_is_best_effort_when_orca_context_is_missing(monkeypatch, tmp_path)
     post.assert_not_called()
 
 
+def test_hook_is_best_effort_when_server_is_not_configured(monkeypatch, tmp_path):
+    post = Mock()
+    monkeypatch.setattr(agent_notifications.requests, "post", post)
+
+    result = agent_notifications.run_notification_hook(
+        "codex",
+        json.dumps({"last-assistant-message": "Done"}),
+        stdin=io.StringIO(),
+        environment={"ORCA_TERMINAL_HANDLE": "terminal-1"},
+        config={},
+        dedupe_path=tmp_path / "events.json",
+    )
+
+    assert result == 0
+    post.assert_not_called()
+
+
+def test_hook_is_best_effort_with_invalid_server_url(monkeypatch, tmp_path):
+    post = Mock()
+    monkeypatch.setattr(agent_notifications.requests, "post", post)
+
+    result = agent_notifications.run_notification_hook(
+        "codex",
+        json.dumps({"last-assistant-message": "Done"}),
+        stdin=io.StringIO(),
+        environment={"ORCA_TERMINAL_HANDLE": "terminal-1"},
+        config={"server": "not a url", "api_key": "secret"},
+        dedupe_path=tmp_path / "events.json",
+    )
+
+    assert result == 0
+    post.assert_not_called()
+
+
+def test_hook_falls_back_to_environment_server(monkeypatch, tmp_path):
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"task_id": "task-2"}
+    post = Mock(return_value=response)
+    monkeypatch.setattr(agent_notifications.requests, "post", post)
+
+    result = agent_notifications.run_notification_hook(
+        "claude",
+        None,
+        stdin=io.StringIO(json.dumps({"last_assistant_message": "Done"})),
+        environment={"ORCA_TERMINAL_HANDLE": "terminal-1", "TAX_SERVER": "https://env.example"},
+        config={"api_key": "secret"},
+        dedupe_path=tmp_path / "events.json",
+    )
+
+    assert result == 0
+    post.assert_called_once()
+    assert post.call_args.args[0] == "https://env.example/push"
+
+
 def test_hook_is_best_effort_for_invalid_json(monkeypatch, tmp_path):
     post = Mock()
     monkeypatch.setattr(agent_notifications.requests, "post", post)

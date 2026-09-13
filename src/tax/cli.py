@@ -7,10 +7,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
-DEFAULT_SERVER = "https://tax.138-249-127-23.nip.io"
 CONFIG_PATH = Path.home() / ".config" / "tax" / "config.json"
 
 
@@ -33,7 +33,26 @@ def save_config(config: dict) -> None:
 
 
 def get_server(config: dict) -> str:
-    return config.get("server", os.environ.get("TAX_SERVER", DEFAULT_SERVER))
+    """Resolve the backend URL: non-empty config value, then environment."""
+    configured = str(config.get("server") or "").strip()
+    return configured or os.environ.get("TAX_SERVER", "").strip()
+
+
+def require_server(config: dict, override: str = "") -> str:
+    """Return a validated backend URL or raise ValueError before any network use."""
+    server = (override or get_server(config)).strip()
+    if not server:
+        raise ValueError(
+            "backend URL is not configured. Run: tax config --server https://tax.example.com "
+            "or export TAX_SERVER"
+        )
+    parsed = urlparse(server)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(
+            f"invalid backend URL {server!r}: expected http(s)://host. "
+            "Fix it with: tax config --server https://tax.example.com"
+        )
+    return server.rstrip("/")
 
 
 def get_api_key(config: dict) -> str:
@@ -96,7 +115,6 @@ def orca_cli_command() -> list[str]:
 
 def run_command(argv: list[str]) -> int:
     config = load_config()
-    server = get_server(config)
     api_key = get_api_key(config)
     device_token = get_device_token(config)
 
@@ -105,6 +123,13 @@ def run_command(argv: list[str]) -> int:
             "[tax] error: TAX_API_KEY not set. Add to ~/.zshrc: export TAX_API_KEY=*** then source ~/.zshrc",
             file=sys.stderr,
         )
+        return 1
+
+    # Configuration preflight: fail before the child command starts.
+    try:
+        server = require_server(config)
+    except ValueError as error:
+        print(f"[tax] error: {error}", file=sys.stderr)
         return 1
 
     if not argv:
@@ -218,7 +243,7 @@ def cmd_remote_host(args: argparse.Namespace) -> int:
     config = load_config()
     try:
         run_remote_host(
-            server=args.server or get_server(config),
+            server=require_server(config, override=args.server),
             api_key=args.api_key or get_api_key(config),
             host_id=args.host_id,
             device_id=args.device_id,
@@ -238,7 +263,7 @@ def cmd_remote_smoke(args: argparse.Namespace) -> int:
     config = load_config()
     try:
         result = run_remote_smoke(
-            server=args.server or get_server(config),
+            server=require_server(config, override=args.server),
             api_key=args.api_key or get_api_key(config),
             host_id=args.host_id,
             device_id=args.device_id,
@@ -279,10 +304,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     required_ok &= _doctor_check("API key", bool(api_key), "configured" if api_key else "missing")
     if api_key:
         try:
-            response = requests.get(f"{get_server(config).rstrip('/')}/health", headers=get_headers(config), timeout=5)
+            server = require_server(config)
+            response = requests.get(f"{server}/health", headers=get_headers(config), timeout=5)
             response.raise_for_status()
-            _doctor_check("backend", True, get_server(config))
-        except requests.RequestException as error:
+            _doctor_check("backend", True, server)
+        except (requests.RequestException, ValueError) as error:
             required_ok &= _doctor_check("backend", False, str(error))
 
     token = get_device_token(config)
@@ -342,11 +368,11 @@ def cmd_recap(args: argparse.Namespace) -> int:
 
 def cmd_push_doctor(args: argparse.Namespace) -> int:
     config = load_config()
-    server = get_server(config).rstrip("/")
     api_key = get_api_key(config)
     if not api_key:
         print("✗ API key: missing", file=sys.stderr)
         return 1
+    server = require_server(config)
     headers = {"Authorization": f"Bearer {api_key}"}
     try:
         response = requests.post(f"{server}/diagnostics/push-test", headers=headers, timeout=15)
@@ -399,7 +425,6 @@ def cmd_notify(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     config = load_config()
-    server = get_server(config)
     api_key = get_api_key(config)
     if not api_key:
         print(
@@ -408,12 +433,16 @@ def cmd_status(args: argparse.Namespace) -> int:
         )
         return 1
     try:
+        server = require_server(config)
         r = requests.get(f"{server}/tasks", headers={"Authorization": f"Bearer {api_key}"}, timeout=10)
         r.raise_for_status()
         data = r.json()
         for task in data.get("tasks", []):
             push_status = task.get("push_status") or "unknown"
             print(f"{task['id']} | {push_status:12} | {task['title']} | {task['updated_at']}")
+    except ValueError as e:
+        print(f"[tax] error: {e}", file=sys.stderr)
+        return 1
     except requests.RequestException as e:
         print(f"[tax] failed to fetch status: {e}", file=sys.stderr)
         return 1
@@ -428,7 +457,7 @@ def main() -> int:
 
     # config
     p_config = subparsers.add_parser("config", help="Configure tax CLI")
-    p_config.add_argument("--server", help="Backend URL, e.g. https://tax.138-249-127-23.nip.io")
+    p_config.add_argument("--server", help="Backend URL, e.g. https://tax.example.com")
     p_config.add_argument("--api-key", help="Backend API key")
     p_config.add_argument("--device-token", help="iPhone device token for APNs")
     p_config.set_defaults(func=cmd_config)

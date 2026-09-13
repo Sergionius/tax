@@ -44,7 +44,19 @@ if command -v xcodebuild >/dev/null && [[ -f ios/tax/tax.xcodeproj/project.pbxpr
 
   echo "== iOS release metadata =="
   test -n "$(find ios/tax/tax/Assets.xcassets/AppIcon.appiconset -type f -name '*.png' -print -quit)"
-  grep -q 'PRODUCT_BUNDLE_IDENTIFIER = ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp;' ios/tax/tax.xcodeproj/project.pbxproj
+  test -f ios/Config/Public.xcconfig
+  # Configurable signing contract: the project must bind every configuration
+  # to the neutral defaults in Public.xcconfig (optionally overridden by the
+  # private ios/Config/Local.xcconfig), not to personal identifiers.
+  grep -q '#include? "Local.xcconfig"' ios/Config/Public.xcconfig
+  for variable in TAX_DEVELOPMENT_TEAM TAX_APP_BUNDLE_IDENTIFIER TAX_TESTS_BUNDLE_IDENTIFIER TAX_UITESTS_BUNDLE_IDENTIFIER; do
+    grep -q "^${variable} =" ios/Config/Public.xcconfig
+  done
+  grep -q 'DEVELOPMENT_TEAM = \$(TAX_DEVELOPMENT_TEAM)' ios/Config/Public.xcconfig
+  for variable in TAX_APP_BUNDLE_IDENTIFIER TAX_TESTS_BUNDLE_IDENTIFIER TAX_UITESTS_BUNDLE_IDENTIFIER; do
+    grep -q "PRODUCT_BUNDLE_IDENTIFIER = \"\$(TAX_${variable#TAX_})\";" ios/tax/tax.xcodeproj/project.pbxproj
+  done
+  test "$(grep -c 'baseConfigurationReference = ' ios/tax/tax.xcodeproj/project.pbxproj)" -eq 8
   grep -q '<key>aps-environment</key>' ios/tax/tax/tax.entitlements
   test -f ios/tax/tax/PrivacyInfo.xcprivacy
   grep -q 'MARKETING_VERSION = ' ios/tax/tax.xcodeproj/project.pbxproj

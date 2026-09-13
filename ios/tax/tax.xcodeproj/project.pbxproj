@@ -38,6 +38,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0C0FEDC800000000000000A1 /* Public.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Public.xcconfig; path = Public.xcconfig; sourceTree = "<group>"; };
 		259D9EFBEA33B0C737B6162F /* DeviceRegistrationServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceRegistrationServiceTests.swift; sourceTree = "<group>"; };
 		3D4265344A42B4E767C45525 /* ModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
 		5669ED4A77C43BE367CB1FD9 /* SettingsStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsStoreTests.swift; sourceTree = "<group>"; };
@@ -101,6 +102,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0C0FEDC800000000000000A0 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				0C0FEDC800000000000000A1 /* Public.xcconfig */,
+			);
+			name = Config;
+			path = ../Config;
+			sourceTree = SOURCE_ROOT;
+		};
 		6B2F9F5059F2EE08D5FCD81D /* taxUITests */ = {
 			isa = PBXGroup;
 			children = (
@@ -127,6 +137,7 @@
 			isa = PBXGroup;
 			children = (
 				A634221C30079B8A00A02DD1 /* tax */,
+				0C0FEDC800000000000000A0 /* Config */,
 				A634221B30079B8A00A02DD1 /* Products */,
 				D10948B3F61FAEAB69A825B0 /* Frameworks */,
 				93A0256ED6C03B6FF0BA8DA2 /* taxTests */,
@@ -335,13 +346,13 @@
 /* Begin XCBuildConfiguration section */
 		47B8833831410297050FEA32 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C0FEDC800000000000000A1 /* Public.xcconfig */;
 			buildSettings = {
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = WQ3X4DQT53;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				PRODUCT_BUNDLE_IDENTIFIER = ru.madmaximuus.tax.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(TAX_UITESTS_BUNDLE_IDENTIFIER)";
 				PRODUCT_MODULE_NAME = "$(PRODUCT_NAME:c99extidentifier)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -355,14 +366,14 @@
 		};
 		9B6D90F050365F650C147D04 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C0FEDC800000000000000A1 /* Public.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = WQ3X4DQT53;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				PRODUCT_BUNDLE_IDENTIFIER = ru.madmaximuus.tax.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(TAX_TESTS_BUNDLE_IDENTIFIER)";
 				PRODUCT_MODULE_NAME = "$(PRODUCT_NAME:c99extidentifier)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -375,6 +386,7 @@
 		};
 		A634222330079B8C00A02DD1 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C0FEDC800000000000000A1 /* Public.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -408,7 +420,6 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = WQ3X4DQT53;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -440,6 +451,7 @@
 		};
 		A634222430079B8C00A02DD1 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C0FEDC800000000000000A1 /* Public.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -473,7 +485,6 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = WQ3X4DQT53;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -498,13 +509,13 @@
 		};
 		A634222630079B8C00A02DD1 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C0FEDC800000000000000A1 /* Public.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = tax/tax.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = WQ3X4DQT53;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = tax/Info.plist;
@@ -517,7 +528,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(TAX_APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -531,13 +542,13 @@
 		};
 		A634222730079B8C00A02DD1 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C0FEDC800000000000000A1 /* Public.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = tax/tax.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = WQ3X4DQT53;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = tax/Info.plist;
@@ -550,7 +561,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(TAX_APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -564,14 +575,14 @@
 		};
 		AF1E79364A3F8E6F57C3FEC6 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C0FEDC800000000000000A1 /* Public.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = WQ3X4DQT53;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				PRODUCT_BUNDLE_IDENTIFIER = ru.madmaximuus.tax.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(TAX_TESTS_BUNDLE_IDENTIFIER)";
 				PRODUCT_MODULE_NAME = "$(PRODUCT_NAME:c99extidentifier)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -585,13 +596,13 @@
 		};
 		CCC58034452F5D35DF2B107D /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0C0FEDC800000000000000A1 /* Public.xcconfig */;
 			buildSettings = {
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = WQ3X4DQT53;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				PRODUCT_BUNDLE_IDENTIFIER = ru.madmaximuus.tax.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(TAX_UITESTS_BUNDLE_IDENTIFIER)";
 				PRODUCT_MODULE_NAME = "$(PRODUCT_NAME:c99extidentifier)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;

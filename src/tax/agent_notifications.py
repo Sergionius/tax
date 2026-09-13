@@ -215,13 +215,16 @@ def run_notification_hook(
             from tax.cli import get_api_key, get_server, load_config
 
             loaded_config = load_config()
-            server = get_server(loaded_config).rstrip("/")
+            server = get_server(loaded_config)
             api_key = get_api_key(loaded_config)
         else:
-            server = (config.get("server") or env.get("TAX_SERVER") or "").rstrip("/")
+            server = (config.get("server") or env.get("TAX_SERVER") or "").strip()
             api_key = config.get("api_key") or env.get("TAX_API_KEY") or ""
         if not server or not api_key:
             raise ValueError("TAX server or API key is not configured; notification skipped")
+        if not server.startswith(("http://", "https://")):
+            raise ValueError(f"TAX server URL {server!r} is not an http(s) URL; notification skipped")
+        server = server.rstrip("/")
 
         path = dedupe_path or default_dedupe_path()
         if event_was_sent(path, notification.event_key):

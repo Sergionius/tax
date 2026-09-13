@@ -24,7 +24,9 @@ enum AppEnvironment {
         guard isUITesting else { return SettingsStore() }
         let preconfigured = arguments.contains("--mock-configured") || isScreenshotMode
         let preferences = MemoryPreferencesStore(values: [
-            "tax.serverURL": argument(after: "--mock-server-url") ?? (isScreenshotMode ? "https://tax.example.com" : "https://tax.138-249-127-23.nip.io"),
+            // Neutral mock URL only: real owner values are passed explicitly
+            // via --mock-server-url or live in the owner's private settings.
+            "tax.serverURL": argument(after: "--mock-server-url") ?? "https://tax.example.com",
             "tax.hostID": argument(after: "--mock-host-id") ?? (isScreenshotMode ? "studio-mac" : "mac-main"),
             "tax.remoteDeviceID": argument(after: "--mock-device-id") ?? (isScreenshotMode ? "demo-iphone" : "iphone-main")
         ])

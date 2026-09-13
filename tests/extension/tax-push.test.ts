@@ -10,6 +10,7 @@ delete process.env.TAX_SERVER;
 
 const ISOLATED_ENV_KEYS = [
   "TAX_API_KEY",
+  "TAX_SERVER",
   "TAX_PUSH_DEBUG",
   "TAX_HOST_ID",
   "ORCA_TERMINAL_HANDLE",
@@ -132,6 +133,7 @@ function registerTestExtension(entries: unknown[]) {
 
 function enableSuccessEnv() {
   process.env.TAX_API_KEY = "key-123";
+  process.env.TAX_SERVER = "http://backend.test";
   process.env.ORCA_TERMINAL_HANDLE = "term-1";
 }
 
@@ -279,6 +281,7 @@ test("skips a concurrent duplicate settled event", async () => {
 
 test("skips the push without a terminal handle", async () => {
   process.env.TAX_API_KEY = "key-123";
+  process.env.TAX_SERVER = "http://backend.test";
   delete process.env.ORCA_TERMINAL_HANDLE;
   const output = captureConsole();
   fetchMock = installFetchMock(() => jsonResponse({ task_id: "task-abc" }));
@@ -290,6 +293,32 @@ test("skips the push without a terminal handle", async () => {
   assert.ok(
     output.logs.some((line) => line.includes("ORCA_TERMINAL_HANDLE is not set; skip push notification")),
   );
+});
+
+test("skips the push without a backend URL and never opens a connection", async () => {
+  process.env.TAX_API_KEY = "key-123";
+  process.env.ORCA_TERMINAL_HANDLE = "term-1";
+  delete process.env.TAX_SERVER;
+  const output = captureConsole();
+  fetchMock = installFetchMock(() => jsonResponse({ task_id: "task-abc" }));
+  const harness = registerTestExtension(COMPLETION_ENTRIES);
+
+  await harness.settled();
+
+  assert.equal(fetchMock.calls.length, 0);
+  assert.ok(output.logs.some((line) => line.includes("TAX_SERVER is not set; skip push notification")));
+});
+
+test("uses the configured backend URL per event", async () => {
+  enableSuccessEnv();
+  process.env.TAX_SERVER = "http://relay.example:8443/";
+  fetchMock = installFetchMock(() => jsonResponse({ task_id: "task-abc" }));
+  const harness = registerTestExtension(COMPLETION_ENTRIES);
+
+  await harness.settled();
+
+  assert.equal(fetchMock.calls.length, 1);
+  assert.equal(fetchMock.calls[0].url, "http://relay.example:8443/push");
 });
 
 test("logs a failure and retries the next event after invalid JSON", async () => {

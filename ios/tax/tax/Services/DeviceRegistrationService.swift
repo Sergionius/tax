@@ -20,7 +20,7 @@ actor DeviceRegistrationService: DeviceRegistering {
     private let baseURL: URL
     private let apiKey: String
     private let transport: any HTTPTransport
-    private let logger = Logger(subsystem: "ru.madmaximuus.yandexmapstestapp.YandexMapsTestApp", category: "DeviceRegistration")
+    private let logger = AppLog.logger(category: "DeviceRegistration")
 
     init(baseURL: URL, apiKey: String, session: URLSession = .shared) {
         self.init(baseURL: baseURL, apiKey: apiKey, transport: URLSessionTransport(session: session))

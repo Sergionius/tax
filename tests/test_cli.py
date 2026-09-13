@@ -74,6 +74,41 @@ def test_config_precedence(monkeypatch, tmp_path):
     assert cli.get_api_key({}) == "env-key"
     assert cli.get_server({"server": "https://config.example"}) == "https://config.example"
     assert cli.get_api_key({"api_key": "config-key"}) == "config-key"
+    # An empty config value falls through to the environment.
+    assert cli.get_server({"server": "  "}) == "https://env.example"
+
+
+def test_server_is_not_configured_by_default(monkeypatch):
+    monkeypatch.delenv("TAX_SERVER", raising=False)
+
+    assert cli.get_server({}) == ""
+    with pytest.raises(ValueError, match="not configured"):
+        cli.require_server({})
+
+
+def test_require_server_keeps_explicit_and_saved_values(monkeypatch):
+    monkeypatch.delenv("TAX_SERVER", raising=False)
+
+    assert cli.require_server({"server": "https://config.example/"}) == "https://config.example"
+    assert cli.require_server({}, override="https://argument.example") == "https://argument.example"
+    monkeypatch.setenv("TAX_SERVER", "https://env.example")
+    assert cli.require_server({}) == "https://env.example"
+    # An explicit argument still wins over config and environment.
+    assert cli.require_server({"server": "https://config.example"}, override="https://argument.example") == (
+        "https://argument.example"
+    )
+
+
+@pytest.mark.parametrize("value", ["", "   ", "not a url", "ftp://host", "https://", "/relative/only"])
+def test_require_server_rejects_invalid_urls_without_network(monkeypatch, value):
+    monkeypatch.delenv("TAX_SERVER", raising=False)
+    post = Mock(side_effect=AssertionError("network request attempted"))
+    monkeypatch.setattr(cli.requests, "post", post)
+
+    with pytest.raises(ValueError):
+        cli.require_server({"server": value})
+
+    post.assert_not_called()
 
 
 def test_config_output_redacts_secrets_and_file_is_private(monkeypatch, tmp_path, capsys):
@@ -301,12 +336,62 @@ def test_status_requires_api_key(monkeypatch, capsys):
     assert "TAX_API_KEY not set" in capsys.readouterr().err
 
 
+def test_status_without_server_reports_config_error_without_network(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "load_config", lambda: {"api_key": "key"})
+    monkeypatch.delenv("TAX_SERVER", raising=False)
+    get_mock = Mock(side_effect=AssertionError("network request attempted"))
+    monkeypatch.setattr(cli.requests, "get", get_mock)
+
+    assert cli.cmd_status(argparse.Namespace()) == 1
+    err = capsys.readouterr().err
+    assert "not configured" in err
+    assert "Traceback" not in err
+    get_mock.assert_not_called()
+
+
+def test_push_doctor_without_server_reports_config_error(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "load_config", lambda: {"api_key": "key", "server": "not a url"})
+    monkeypatch.delenv("TAX_SERVER", raising=False)
+    post_mock = Mock(side_effect=AssertionError("network request attempted"))
+    monkeypatch.setattr(cli.requests, "post", post_mock)
+
+    with pytest.raises(ValueError, match="invalid backend URL"):
+        cli.cmd_push_doctor(argparse.Namespace(timeout=1))
+    post_mock.assert_not_called()
+
+
 def test_run_requires_api_key(monkeypatch, capsys):
     monkeypatch.setattr(cli, "load_config", lambda: {})
     monkeypatch.delenv("TAX_API_KEY", raising=False)
 
     assert cli.run_command(["true"]) == 1
     assert "TAX_API_KEY not set" in capsys.readouterr().err
+
+
+def test_run_without_server_reports_config_error_before_launch(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "load_config", lambda: {"api_key": "key"})
+    monkeypatch.delenv("TAX_SERVER", raising=False)
+    popen = Mock(side_effect=AssertionError("child command must not run"))
+    monkeypatch.setattr(cli.subprocess, "Popen", popen)
+
+    assert cli.run_command(["true"]) == 1
+
+    err = capsys.readouterr().err
+    assert "not configured" in err
+    assert "Traceback" not in err
+    popen.assert_not_called()
+
+
+def test_run_with_invalid_server_reports_config_error_before_launch(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "load_config", lambda: {"api_key": "key", "server": "ftp://host"})
+    monkeypatch.delenv("TAX_SERVER", raising=False)
+    popen = Mock(side_effect=AssertionError("child command must not run"))
+    monkeypatch.setattr(cli.subprocess, "Popen", popen)
+
+    assert cli.run_command(["true"]) == 1
+
+    assert "invalid backend URL" in capsys.readouterr().err
+    popen.assert_not_called()
 
 
 def test_run_requires_command(monkeypatch, capsys):
@@ -402,6 +487,30 @@ def test_run_command_falls_back_to_orca_workspace_id(monkeypatch):
     assert cli.run_command(["true"]) == 0
 
     assert send.call_args.kwargs["orca_worktree_id"] == "ws-1"
+
+
+def test_run_command_prefers_config_server_over_environment(monkeypatch):
+    monkeypatch.setattr(cli, "load_config", lambda: {"api_key": "key", "server": "https://config.example"})
+    monkeypatch.setenv("TAX_SERVER", "https://env.example")
+    send = Mock(return_value={"task_id": "task-8"})
+    monkeypatch.setattr(cli, "send_push", send)
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda argv, **kwargs: FakeProcess("", exit_code=0))
+
+    assert cli.run_command(["true"]) == 0
+
+    assert send.call_args.args[0] == "https://config.example"
+
+
+def test_run_command_uses_environment_server_without_config_value(monkeypatch):
+    monkeypatch.setattr(cli, "load_config", lambda: {"api_key": "key"})
+    monkeypatch.setenv("TAX_SERVER", "https://env.example")
+    send = Mock(return_value={"task_id": "task-8"})
+    monkeypatch.setattr(cli, "send_push", send)
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda argv, **kwargs: FakeProcess("", exit_code=0))
+
+    assert cli.run_command(["true"]) == 0
+
+    assert send.call_args.args[0] == "https://env.example"
 
 
 def test_run_command_returns_exit_code_when_push_fails(monkeypatch, capsys):

@@ -1,7 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-const BACKEND_URL = (process.env.TAX_SERVER?.trim() || "https://tax.138-249-127-23.nip.io").replace(/\/$/, "");
-const PUSH_ENDPOINT = `${BACKEND_URL}/push`;
 const REQUEST_TIMEOUT_MS = 10_000;
 const CONTEXT_MAX_LENGTH = 100_000;
 const LOGS_MAX_LENGTH = 500_000;
@@ -231,8 +229,8 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
-async function postPush(payload: Record<string, string>, apiKey: string): Promise<string> {
-  const response = await fetchWithTimeout(PUSH_ENDPOINT, {
+async function postPush(endpoint: string, payload: Record<string, string>, apiKey: string): Promise<string> {
+  const response = await fetchWithTimeout(endpoint, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
@@ -303,6 +301,13 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      const server = process.env.TAX_SERVER?.trim() || "";
+      if (!server) {
+        log(ctx, "TAX_SERVER is not set; skip push notification", "warning");
+        return;
+      }
+      const endpoint = `${server.replace(/\/+$/, "")}/push`;
+
       const orcaTerminalHandle = process.env.ORCA_TERMINAL_HANDLE?.trim() || "";
       if (!orcaTerminalHandle) {
         log(ctx, "ORCA_TERMINAL_HANDLE is not set; skip push notification", "warning");
@@ -335,7 +340,7 @@ export default function (pi: ExtensionAPI) {
         sessionFile ? `Session: ${sessionFile}` : "",
       ].filter(Boolean).join("\n");
       try {
-        await postPush({
+        await postPush(endpoint, {
           title: result.title,
           body: result.body,
           context: truncatePayloadText(context, CONTEXT_MAX_LENGTH),

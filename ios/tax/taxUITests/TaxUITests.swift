@@ -48,7 +48,7 @@ final class TaxUITests: XCTestCase {
         }
         let app = launch(
             "--mock-configured",
-            "--mock-server-url", environment["TAX_UI_SERVER"] ?? "https://tax.138-249-127-23.nip.io",
+            "--mock-server-url", environment["TAX_UI_SERVER"] ?? "https://tax.example.com",
             "--mock-api-key", apiKey,
             "--mock-host-id", environment["TAX_UI_HOST_ID"] ?? "mac-main",
             "--mock-device-id", environment["TAX_UI_DEVICE_ID"] ?? "iphone-main",
