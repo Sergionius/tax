@@ -1,0 +1,68 @@
+{
+  "fixture_version": 1,
+  "sanitized": true,
+  "orca": {
+    "version": "1.4.188",
+    "commit": "2b1254d68192676e04674c2826e5f8f63992f1ad",
+    "daemon_protocol_version": 36,
+    "required_capabilities": [
+      "runtime.status.compat.v1",
+      "terminal.binary-stream.v1",
+      "terminal.multiplex.v1"
+    ]
+  },
+  "status": {
+    "runtime": {
+      "state": "ready",
+      "reachable": true,
+      "runtimeId": "<runtime-id>",
+      "appVersion": "1.4.188"
+    },
+    "graph": {
+      "state": "ready"
+    }
+  },
+  "workspace": {
+    "workspaceKind": "git",
+    "worktreeId": "<repo-id>::<worktree-path>",
+    "repoId": "<repo-id>",
+    "hostId": "local",
+    "terminalPlatform": "darwin",
+    "repo": "fixture-repo",
+    "path": "<worktree-path>",
+    "branch": "refs/heads/main",
+    "displayName": "main",
+    "liveTerminalCount": 1,
+    "hasAttachedPty": true
+  },
+  "terminal": {
+    "handle": "term_<runtime-scoped-id>",
+    "ptyId": "<repo-id>::<worktree-path>@@<pty-id>",
+    "incarnationId": "<incarnation-id>",
+    "worktreeId": "<repo-id>::<worktree-path>",
+    "worktreePath": "<worktree-path>",
+    "tabId": "<tab-id>",
+    "leafId": "<leaf-id>",
+    "title": "Fixture",
+    "connected": true,
+    "writable": true,
+    "executionHostId": "local"
+  },
+  "terminal_stream": {
+    "method": "terminal.multiplex",
+    "control_stream_id": 0,
+    "terminal_stream_id": 1,
+    "initial_opcodes": [
+      "Subscribe",
+      "SnapshotStart",
+      "SnapshotChunk",
+      "SnapshotEnd"
+    ],
+    "snapshot": {
+      "kind": "scrollback",
+      "cols": 108,
+      "rows": 45,
+      "data": "<redacted-terminal-bytes>"
+    }
+  }
+}

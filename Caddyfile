@@ -1,0 +1,10 @@
+# TAX reverse proxy template.
+#
+# Rendered by "scripts/deploy-config.sh render" from the private deployment
+# configuration (see docs/LOCAL_CONFIGURATION.md). Never install this file
+# unrendered: the deployment scripts refuse files that still contain
+# placeholders. The port must match the systemd unit and the health check
+# (single configured loopback port, 8000 in the examples).
+@TAX_DEPLOY_DOMAIN@ {
+    reverse_proxy 127.0.0.1:@TAX_DEPLOY_PORT@
+}

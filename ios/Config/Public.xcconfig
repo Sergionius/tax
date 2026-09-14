@@ -1,0 +1,19 @@
+// Public iOS signing defaults for TAX.
+//
+// These values are safe to publish: they contain no real development team or
+// personal bundle identifiers. Owner-specific values live in
+// ios/Config/Local.xcconfig (optional, never committed) and override the
+// defaults below. See docs/LOCAL_CONFIGURATION.md for the full contract.
+
+// Neutral defaults.
+TAX_DEVELOPMENT_TEAM =
+TAX_APP_BUNDLE_IDENTIFIER = com.example.tax
+TAX_TESTS_BUNDLE_IDENTIFIER = com.example.tax.tests
+TAX_UITESTS_BUNDLE_IDENTIFIER = com.example.tax.uitests
+
+// Private overrides win. The include is optional: a fresh clone without
+// Local.xcconfig builds with the neutral defaults above.
+#include? "Local.xcconfig"
+
+// Xcode build settings derived from the contract.
+DEVELOPMENT_TEAM = $(TAX_DEVELOPMENT_TEAM)

@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Environment and secrets
+.env
+*.env
+*.key
+*.p8
+keys/
+
+# Local private configuration (owner-only, never commit)
+ios/Config/Local.xcconfig
+
+# Local skills and internal plans (owner-only, never commit).
+# Keep the files on disk; they stay out of the published set.
+.pi/
+plans/
+docs/plans/
+ios/docs/plans/
+ios/skills/
+# Tracked example files stay visible despite the *.env rule above.
+!deploy.env.example
+!server/.env.example
+
+# Databases and runtime data
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# iOS
+ios/**/*.xcodeproj/project.xcworkspace/
+ios/**/*.xcodeproj/xcuserdata/
+ios/**/DerivedData/
+ios/**/*.ipa
+ios/**/*.dSYM.zip
+ios/**/*.dSYM
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/

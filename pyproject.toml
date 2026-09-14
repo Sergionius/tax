@@ -1,0 +1,57 @@
+[project]
+name = "tax"
+version = "0.4.0"
+description = "Task Agent eXchange — push notifications and remote Orca workspaces"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    {name = "Sergionius"},
+]
+keywords = ["agent", "push", "notifications", "orca", "pi"]
+dependencies = [
+    "typer>=0.27.2",
+    "requests>=2.34.2",
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.52.4",
+    "httpx[http2]>=0.28.1",
+    "pydantic>=2.13.5",
+    "pyjwt>=2.13.0",
+    "cryptography>=50.0.1",
+    "websockets>=17.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.6.0",
+    "httpx2>=2.12.0",
+    "pytest>=9.1.1",
+    "ruff>=0.16.5",
+]
+
+[project.scripts]
+tax = "tax.cli:main"
+
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+# Kept in sync with the uv version pinned in .github/workflows/python.yml.
+required-version = "==0.12.13"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tax"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+# Keep the CI lint contract explicit so new Ruff releases cannot enable new
+# rule families and break an otherwise unchanged commit.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "src"]
+testpaths = ["tests"]

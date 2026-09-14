@@ -1,0 +1,36 @@
+{
+  "name": "tax-agent-extensions",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi and OMP completion notifications for tax",
+  "keywords": [
+    "pi-package",
+    "omp-plugin"
+  ],
+  "scripts": {
+    "test": "node --test tests/extension/*.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@oh-my-pi/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@oh-my-pi/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/tax-push.ts"
+    ]
+  },
+  "omp": {
+    "extensions": [
+      "./extensions/tax-push-omp.ts"
+    ]
+  }
+}

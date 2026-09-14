@@ -1,0 +1,150 @@
+name: Python quality
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'server/requirements.txt'
+      - 'deploy.sh'
+      - 'reinstall-backend.sh'
+      - 'Caddyfile'
+      - 'deploy.env.example'
+      - 'scripts/deploy-backend.sh'
+      - 'scripts/deploy-config.sh'
+      - 'scripts/check-public-tree.py'
+      - 'scripts/preflight.sh'
+      - 'scripts/deployment_checks.py'
+      - '.github/workflows/python.yml'
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'server/requirements.txt'
+      - 'deploy.sh'
+      - 'reinstall-backend.sh'
+      - 'Caddyfile'
+      - 'deploy.env.example'
+      - 'scripts/deploy-backend.sh'
+      - 'scripts/deploy-config.sh'
+      - 'scripts/check-public-tree.py'
+      - 'scripts/preflight.sh'
+      - 'scripts/deployment_checks.py'
+      - '.github/workflows/python.yml'
+
+concurrency:
+  group: python-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  # Keep in sync with [tool.uv] required-version in pyproject.toml.
+  UV_VERSION: '0.12.13'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      # actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pinned uv
+        run: python -m pip install "uv==${UV_VERSION}"
+      - run: uv sync --locked --extra dev
+      - run: uv run --locked --extra dev ruff check server src tests scripts/deployment_checks.py
+      - run: uv run --locked --extra dev pytest -q
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install pinned uv
+        run: python -m pip install "uv==${UV_VERSION}"
+      - run: uv sync --locked --extra dev
+      - run: uv build
+      - name: Verify exported requirements match the lock
+        run: |
+          uv export --no-dev --no-emit-project -o server/requirements.txt
+          git diff --exit-code -- server/requirements.txt
+      - name: Install wheel in a clean venv
+        run: |
+          python -m venv /tmp/tax-wheel
+          /tmp/tax-wheel/bin/pip install dist/*.whl
+          /tmp/tax-wheel/bin/tax --help
+          /tmp/tax-wheel/bin/tax notify --help
+          /tmp/tax-wheel/bin/tax run --help
+          /tmp/tax-wheel/bin/tax remote-host --help
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check Docker and Compose availability
+        run: |
+          docker version
+          docker compose version
+      - name: Validate Compose configuration with a synthetic environment
+        run: |
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          data_dir="$tmpdir/data"
+          keys_dir="$tmpdir/keys"
+          mkdir -p "$data_dir" "$keys_dir"
+          cat > "$tmpdir/compose.env" <<EOF
+          TAX_DEPLOY_PORT=8123
+          TAX_COMPOSE_DATA_DIR=$data_dir
+          TAX_COMPOSE_KEYS_DIR=$keys_dir
+          TAX_API_KEY=synthetic-api-key
+          TAX_APNS_KEY_ID=synthetic-key-id
+          TAX_APNS_TEAM_ID=synthetic-team-id
+          TAX_APNS_BUNDLE_ID=com.example.tax
+          TAX_APNS_USE_SANDBOX=1
+          EOF
+          docker compose --env-file "$tmpdir/compose.env" -f server/docker-compose.yml config > "$tmpdir/resolved.yml"
+          grep -Eq '127\.0\.0\.1:8123:8000|published: "8123"' "$tmpdir/resolved.yml"
+          grep -Eq '127\.0\.0\.1:8000:8000|target: 8000' "$tmpdir/resolved.yml"
+          grep -Fq "$data_dir" "$tmpdir/resolved.yml"
+          grep -Fq "$keys_dir" "$tmpdir/resolved.yml"
+      - name: Build the backend image
+        run: docker build --tag tax-backend:ci server
+      - name: Import backend modules inside the built image
+        run: |
+          docker run --rm --network none tax-backend:ci \
+            python -c 'import main, relay, storage, apns'
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install pinned uv
+        run: python -m pip install "uv==${UV_VERSION}"
+      - run: uv sync --locked --extra dev
+      - run: uv run --locked --extra dev --with pip-audit pip-audit

@@ -1,0 +1,215 @@
+import XCTest
+@testable import tax
+
+@MainActor
+final class SettingsStoreTests: XCTestCase {
+    func testLoadsPreviouslySavedSettings() {
+        let preferences = PreferencesMock(values: [
+            "tax.serverURL": "https://saved.example",
+            "tax.deviceToken": "saved-token",
+            "tax.pushMode": "off"
+        ])
+        let keychain = KeychainMock(values: ["tax.apiKey": "saved-key"])
+        let store = SettingsStore(preferences: preferences, keychain: keychain)
+
+        XCTAssertEqual(store.apiKey, "saved-key")
+        XCTAssertEqual(store.serverURL, "https://saved.example")
+        XCTAssertEqual(store.deviceToken, "saved-token")
+        XCTAssertEqual(store.pushMode, .off)
+    }
+
+    func testDefaultsToEmptyServerURLWhenNothingIsSaved() {
+        let store = SettingsStore(preferences: PreferencesMock(), keychain: KeychainMock())
+
+        XCTAssertEqual(store.serverURL, "")
+        XCTAssertNil(store.configuredService)
+        XCTAssertNil(store.remoteConfiguration)
+    }
+
+    func testUnconfiguredStoreCreatesNoServiceAndSendsNoRegistration() async {
+        let factory = ServiceFactoryRecorder()
+        let store = SettingsStore(
+            preferences: PreferencesMock(values: ["tax.deviceToken": "token-1"]),
+            keychain: KeychainMock(),
+            serviceFactory: factory.make
+        )
+
+        try? await store.registerSavedDeviceToken()
+
+        XCTAssertEqual(factory.creationCount, 0)
+        XCTAssertNil(store.configuredService)
+    }
+
+    func testInvalidServerURLDoesNotCreateServiceEvenWithKey() {
+        let factory = ServiceFactoryRecorder()
+        let store = SettingsStore(
+            preferences: PreferencesMock(values: ["tax.serverURL": "not a server"]),
+            keychain: KeychainMock(values: ["tax.apiKey": "key"]),
+            serviceFactory: factory.make
+        )
+
+        XCTAssertNil(store.configuredService)
+        XCTAssertNil(store.remoteConfiguration)
+        XCTAssertEqual(factory.creationCount, 0)
+    }
+
+    func testSavesAPIKeyOnlyToKeychainAndPreferencesSeparately() {
+        let preferences = PreferencesMock()
+        let keychain = KeychainMock()
+        let store = SettingsStore(preferences: preferences, keychain: keychain)
+        store.apiKey = "  secret  "
+        store.serverURL = "https://server.example"
+        store.pushMode = .all
+
+        XCTAssertTrue(store.save())
+        XCTAssertEqual(keychain.values["tax.apiKey"], "secret")
+        XCTAssertNil(preferences.values["tax.apiKey"])
+        XCTAssertEqual(preferences.values["tax.serverURL"], "https://server.example")
+        XCTAssertEqual(preferences.values["tax.pushMode"], "all")
+    }
+
+    func testRemoteConfigurationLoadsSecretsFromKeychainAndSavesRoutingIDs() {
+        let preferences = PreferencesMock(values: [
+            "tax.serverURL": "https://server.example",
+            "tax.hostID": "mac-1",
+            "tax.remoteDeviceID": "phone-1"
+        ])
+        let keychain = KeychainMock(values: ["tax.apiKey": "api", "tax.remoteE2EEKey": "e2ee"])
+        let store = SettingsStore(preferences: preferences, keychain: keychain)
+
+        XCTAssertEqual(store.remoteConfiguration?.hostID, "mac-1")
+        XCTAssertEqual(store.remoteConfiguration?.deviceID, "phone-1")
+        XCTAssertEqual(store.remoteConfiguration?.e2eeKey, "e2ee")
+        store.e2eeKey = " replacement "
+        store.hostID = "mac-2"
+        XCTAssertTrue(store.save())
+        XCTAssertEqual(keychain.values["tax.remoteE2EEKey"], "replacement")
+        XCTAssertEqual(preferences.values["tax.hostID"], "mac-2")
+        XCTAssertNil(preferences.values["tax.remoteE2EEKey"])
+    }
+
+    func testInvalidatesCachedServiceWhenSettingsChange() {
+        let factory = ServiceFactoryRecorder()
+        let store = SettingsStore(
+            preferences: PreferencesMock(values: ["tax.serverURL": "https://server.example"]),
+            keychain: KeychainMock(values: ["tax.apiKey": "key"]),
+            serviceFactory: factory.make
+        )
+        let first = store.configuredService as AnyObject?
+        let same = store.configuredService as AnyObject?
+        XCTAssertTrue(first === same)
+        XCTAssertEqual(factory.creationCount, 1)
+
+        store.serverURL = "https://other.example"
+        let second = store.configuredService as AnyObject?
+        XCTAssertFalse(first === second)
+        XCTAssertEqual(factory.creationCount, 2)
+    }
+
+    func testHandlesKeychainFailureWithoutLeakingAPIKey() {
+        let keychain = KeychainMock()
+        keychain.saveError = TestError.keychainUnavailable
+        let store = SettingsStore(preferences: PreferencesMock(), keychain: keychain)
+        store.apiKey = "never-log-this-key"
+
+        XCTAssertFalse(store.save())
+        XCTAssertNotNil(store.lastSaveError)
+        XCTAssertFalse(store.lastSaveError?.contains("never-log-this-key") ?? true)
+    }
+
+    func testRegistersSavedDeviceAgainAfterSettingsChange() async throws {
+        let service = ServiceStub()
+        let store = SettingsStore(
+            preferences: PreferencesMock(values: [
+                "tax.serverURL": "https://server.example",
+                "tax.deviceToken": "token-1"
+            ]),
+            keychain: KeychainMock(values: ["tax.apiKey": "key"]),
+            serviceFactory: { _, _ in service }
+        )
+
+        try await store.registerSavedDeviceToken()
+        store.serverURL = "https://new.example"
+        try await store.registerSavedDeviceToken()
+
+        let registrations = await service.registrations
+        XCTAssertEqual(registrations.count, 2)
+        XCTAssertEqual(registrations.map(\.0), ["token-1", "token-1"])
+    }
+
+    func testRejectsMalformedServerURL() {
+        let store = SettingsStore(
+            preferences: PreferencesMock(),
+            keychain: KeychainMock(values: ["tax.apiKey": "key"])
+        )
+        store.serverURL = "not a server"
+        XCTAssertNil(store.configuredService)
+    }
+
+    func testKeepsExplicitlySetServerURLAndUsesItForServices() {
+        let preferences = PreferencesMock()
+        let keychain = KeychainMock(values: ["tax.apiKey": "key"])
+        let store = SettingsStore(preferences: preferences, keychain: keychain)
+
+        store.serverURL = "https://server.example"
+        XCTAssertTrue(store.save())
+        XCTAssertEqual(preferences.values["tax.serverURL"], "https://server.example")
+        XCTAssertNotNil(store.configuredService)
+
+        let reloaded = SettingsStore(preferences: preferences, keychain: keychain)
+        XCTAssertEqual(reloaded.serverURL, "https://server.example")
+    }
+}
+
+@MainActor
+private final class PreferencesMock: PreferencesStoring {
+    var values: [String: String]
+
+    init(values: [String: String] = [:]) {
+        self.values = values
+    }
+
+    func string(forKey key: String) -> String? { values[key] }
+    func set(_ value: String, forKey key: String) { values[key] = value }
+}
+
+@MainActor
+private final class KeychainMock: KeychainStoring {
+    var values: [String: String]
+    var saveError: Error?
+    var loadError: Error?
+
+    init(values: [String: String] = [:]) {
+        self.values = values
+    }
+
+    func save(key: String, value: String) throws {
+        if let saveError { throw saveError }
+        values[key] = value
+    }
+
+    func load(key: String) throws -> String? {
+        if let loadError { throw loadError }
+        return values[key]
+    }
+
+    func delete(key: String) throws {
+        values[key] = nil
+    }
+}
+
+@MainActor
+private final class ServiceFactoryRecorder {
+    private(set) var creationCount = 0
+
+    func make(url: URL, key: String) -> any DeviceRegistering {
+        creationCount += 1
+        return ServiceStub()
+    }
+}
+
+private enum TestError: LocalizedError {
+    case keychainUnavailable
+
+    var errorDescription: String? { "Keychain unavailable" }
+}

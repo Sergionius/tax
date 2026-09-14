@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "control": {
+    "version": 1,
+    "type": "terminal.create",
+    "request_id": "request-fixture-1",
+    "operation_id": "operation-fixture-1",
+    "payload": {
+      "host_id": "host-fixture",
+      "workspace_id": "workspace-fixture",
+      "title": "Remote"
+    }
+  },
+  "terminal_frame": {
+    "opcode": "OUTPUT",
+    "stream_id": 7,
+    "generation": 3,
+    "sequence": 42,
+    "payload_base64": "YW5zaS1ieXRlcw==",
+    "encoded_base64": "AQIAAAAAAAcAAAAAAAAAAwAAAAAAAAAqYW5zaS1ieXRlcw=="
+  },
+  "limits": {
+    "control_bytes": 262144,
+    "binary_frame_bytes": 8388608
+  }
+}

@@ -1,0 +1,108 @@
+name: iOS quality
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PROJECT: ios/tax/tax.xcodeproj
+  SCHEME: tax
+
+jobs:
+  unit-tests:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      # actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Show Xcode version
+        run: |
+          xcode-select -p
+          xcodebuild -version
+      - name: Prepare iPhone simulator
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          ids = [device["udid"] for devices in data["devices"].values() for device in devices if device["name"].startswith("iPhone")]
+          if not ids:
+              raise SystemExit("No available iPhone simulator")
+          print(ids[0])
+          ')
+          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          echo "DESTINATION=platform=iOS Simulator,id=$DEVICE_ID" >> "$GITHUB_ENV"
+      - name: Build for Simulator
+        run: |
+          xcodebuild build \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -configuration Debug \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Run unit tests
+        run: |
+          xcodebuild test \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -only-testing:taxTests \
+            -resultBundlePath unit-tests.xcresult \
+            -skipPackagePluginValidation
+      - name: Upload unit test result
+        if: failure()
+        # actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ios-unit-tests-xcresult
+          path: unit-tests.xcresult
+
+  ui-tests:
+    runs-on: macos-26
+    timeout-minutes: 30
+    needs: unit-tests
+    steps:
+      # actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Show Xcode version
+        run: |
+          xcode-select -p
+          xcodebuild -version
+      - name: Prepare iPhone simulator
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          ids = [device["udid"] for devices in data["devices"].values() for device in devices if device["name"].startswith("iPhone")]
+          if not ids:
+              raise SystemExit("No available iPhone simulator")
+          print(ids[0])
+          ')
+          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          echo "DESTINATION=platform=iOS Simulator,id=$DEVICE_ID" >> "$GITHUB_ENV"
+      - name: Run mock UI smoke tests
+        run: |
+          xcodebuild test \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -only-testing:taxUITests \
+            -resultBundlePath ui-tests.xcresult \
+            -retry-tests-on-failure \
+            -test-iterations 2 \
+            -skipPackagePluginValidation
+      - name: Upload UI test result
+        if: failure()
+        # actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ios-ui-tests-xcresult
+          path: ui-tests.xcresult

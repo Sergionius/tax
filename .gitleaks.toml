@@ -1,0 +1,7 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Swift variable assignment, not a literal credential"
+regexTarget = "line"
+regexes = ['''^\s*e2eeKey = normalizedE2EEKey\s*$''']

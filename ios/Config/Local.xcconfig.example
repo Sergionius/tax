@@ -1,0 +1,21 @@
+// Private iOS signing overrides for TAX (example values only).
+//
+// Copy this file to ios/Config/Local.xcconfig, fill in your real values, and
+// keep it out of Git (that path is ignored). Set the file mode to 0600 on
+// shared machines. Never commit a filled-in file or print its contents.
+//
+// These variables override the neutral defaults that ship with the project.
+// See docs/LOCAL_CONFIGURATION.md for the full contract.
+
+// Apple Development Team ID (10 characters, from developer.apple.com).
+TAX_DEVELOPMENT_TEAM = YOUR_TEAM_ID
+
+// App bundle identifier. Must stay stable across installs so that existing
+// Keychain entries keep working.
+TAX_APP_BUNDLE_IDENTIFIER = com.example.tax
+
+// Unit test bundle identifier.
+TAX_TESTS_BUNDLE_IDENTIFIER = com.example.tax.tests
+
+// UI test bundle identifier.
+TAX_UITESTS_BUNDLE_IDENTIFIER = com.example.tax.uitests
