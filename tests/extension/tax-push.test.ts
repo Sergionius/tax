@@ -366,6 +366,44 @@ test("treats an HTTP failure as a failed push", async () => {
   assert.ok(output.logs.some((line) => line.includes("Failed to send push notification")));
 });
 
+test("reports push failure through UI without writing over the Pi input", async () => {
+  enableSuccessEnv();
+  const output = captureConsole();
+  const notifications: Array<{ message: string; level: string }> = [];
+  fetchMock = installFetchMock(() => jsonResponse("server exploded", 500));
+  const harness = registerTestExtension(COMPLETION_ENTRIES);
+
+  await harness.settled({
+    cwd: "/tmp/project",
+    hasUI: true,
+    ui: { notify: (message: string, level: string) => notifications.push({ message, level }) },
+    sessionManager: { buildContextEntries: () => COMPLETION_ENTRIES },
+  });
+
+  assert.equal(fetchMock.calls.length, 1);
+  assert.deepEqual(notifications, [{ message: "Failed to send push notification: HTTP 500: server exploded", level: "warning" }]);
+  assert.deepEqual(output.logs, []);
+  assert.deepEqual(output.warns, []);
+});
+
+test("does not write debug success messages to stdout while UI is active", async () => {
+  enableSuccessEnv();
+  process.env.TAX_PUSH_DEBUG = "1";
+  const output = captureConsole();
+  fetchMock = installFetchMock(() => jsonResponse({ task_id: "task-abc" }));
+  const harness = registerTestExtension(COMPLETION_ENTRIES);
+
+  await harness.settled({
+    cwd: "/tmp/project",
+    hasUI: true,
+    ui: { notify: () => {} },
+    sessionManager: { buildContextEntries: () => COMPLETION_ENTRIES },
+  });
+
+  assert.deepEqual(output.logs, []);
+  assert.deepEqual(output.warns, []);
+});
+
 test("does not log Push sent when debug is disabled", async () => {
   enableSuccessEnv();
   delete process.env.TAX_PUSH_DEBUG;

@@ -266,8 +266,10 @@ function log(
   message: string,
   level: "info" | "warning" | "error" = "info",
 ) {
-  console.log(`[${EXTENSION_NAME}] ${message}`);
-  if (!ctx.hasUI) return;
+  if (!ctx.hasUI) {
+    console.log(`[${EXTENSION_NAME}] ${message}`);
+    return;
+  }
   try {
     ctx.ui?.notify?.(message, level);
   } catch {
@@ -275,8 +277,8 @@ function log(
   }
 }
 
-function logQuietly(message: string, level: "info" | "warning" = "info") {
-  if (process.env.TAX_PUSH_DEBUG !== "1") return;
+function logQuietly(ctx: { hasUI?: boolean }, message: string, level: "info" | "warning" = "info") {
+  if (process.env.TAX_PUSH_DEBUG !== "1" || ctx.hasUI) return;
   const output = `[${EXTENSION_NAME}] ${message}`;
   if (level === "warning") console.warn(output);
   else console.log(output);
@@ -356,7 +358,7 @@ export default function (pi: ExtensionAPI) {
       } finally {
         if (inFlightKey === result.key) inFlightKey = undefined;
       }
-      logQuietly("Push sent");
+      logQuietly(ctx, "Push sent");
     } catch (error) {
       inFlightKey = undefined;
       const message = error instanceof Error ? error.message : String(error);
