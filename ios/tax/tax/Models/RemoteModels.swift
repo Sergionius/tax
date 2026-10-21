@@ -55,6 +55,51 @@ struct RemoteTerminal: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// A Quick Command saved in Orca (`terminal-command` or `agent-prompt`).
+/// TAX never edits this list; it only reads it on the Mac and launches it.
+struct RemoteQuickCommand: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let label: String
+    let scope: String
+    let repoID: String?
+    let action: String
+    let command: String?
+    let appendEnter: Bool?
+    let agent: String?
+    let prompt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, label, scope, action, command, agent, prompt
+        case repoID = "repo_id"
+        case appendEnter = "append_enter"
+    }
+
+    var isAgentPrompt: Bool { action == "agent-prompt" }
+
+    /// Orca runs the command once the shell is ready unless it was saved with
+    /// `appendEnter=false`; then TAX pastes the text without pressing Enter.
+    var appendsEnter: Bool { appendEnter ?? true }
+
+    /// Short type explanation shown under the command label.
+    var kindSummary: String {
+        if isAgentPrompt { return agent.map { "Agent prompt · \($0)" } ?? "Agent prompt" }
+        if action == "terminal-command" { return appendsEnter ? "Terminal command" : "Terminal command · pasted without run" }
+        return action
+    }
+
+    /// Only global commands and commands scoped to this workspace's repository.
+    func applies(to workspace: RemoteWorkspace) -> Bool {
+        scope == "global" || (scope == "repo" && repoID == workspace.projectID)
+    }
+}
+
+extension Array where Element == RemoteQuickCommand {
+    /// Filters by workspace repository while keeping the order returned by Orca.
+    func visible(in workspace: RemoteWorkspace) -> [RemoteQuickCommand] {
+        filter { $0.applies(to: workspace) }
+    }
+}
+
 struct RemoteFileEntry: Codable, Identifiable, Hashable, Sendable {
     let name: String
     let path: String

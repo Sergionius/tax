@@ -176,4 +176,182 @@ struct RemoteProtocolTests {
         try await Swift.Task.sleep(for: .milliseconds(250))
         #expect(changes == [TerminalRendererViewport(columns: 100, rows: 30)])
     }
+
+    @MainActor
+    @Test func quickCommandListResultRoutesPerWorkspaceInOrcaOrder() {
+        let store = RemoteWorkspaceStore()
+        store.apply(Self.message(
+            type: "operation.result",
+            payload: ["workspace_id": .string("ws"), "commands": Self.commandObjects()]
+        ))
+
+        #expect(store.quickCommands["ws"]?.map(\.id) == ["qc-run", "qc-other", "qc-paste"])
+        #expect(!store.isLoadingQuickCommands)
+        #expect(store.quickCommandError == nil)
+
+        // Filtering keeps the Orca order and hides other repositories' commands.
+        let workspace = Self.workspace(projectID: "repo")
+        #expect(store.quickCommands["ws"]?.visible(in: workspace).map(\.id) == ["qc-run", "qc-paste"])
+    }
+
+    @MainActor
+    @Test func quickCommandListFailureShowsMessageWithLoadingCleared() {
+        let store = RemoteWorkspaceStore()
+        store.pendingQuickCommandListID = "op-list"
+        store.isLoadingQuickCommands = true
+        store.apply(Self.message(
+            type: "protocol.error",
+            operationID: "op-list",
+            payload: ["ok": .bool(false), "code": .string("invalid_runtime_response"), "message": .string("Orca returned an unexpected Quick Commands response")]
+        ))
+
+        #expect(store.quickCommandError == "Orca returned an unexpected Quick Commands response")
+        #expect(!store.isLoadingQuickCommands)
+        #expect(store.quickCommands.isEmpty)
+    }
+
+    @MainActor
+    @Test func quickCommandRunResultOpensTerminalAndStagesSinglePasteForThatTerminal() {
+        let store = RemoteWorkspaceStore()
+        store.pendingQuickCommandRun = PendingQuickCommandRun(operationID: "op-1")
+        store.runningQuickCommandID = "qc-paste"
+        store.apply(Self.message(
+            type: "operation.result",
+            operationID: "op-1",
+            payload: [
+                "terminal": Self.terminalObject(id: "created"),
+                "insert_text": .string("echo one\necho two"),
+            ]
+        ))
+
+        #expect(store.runningQuickCommandID == nil)
+        #expect(store.pendingQuickCommandRun == nil)
+        #expect(store.launchedQuickCommandTerminal?.id == "created")
+        #expect(store.terminals["ws"]?.map(\.id) == ["created"])
+        #expect(store.pendingQuickCommandInsert == PendingQuickCommandInsert(terminalID: "created", text: "echo one\necho two"))
+
+        // A ready subscription for a different terminal must not consume the paste.
+        store.activeTerminalID = "other"
+        store.activeStreamID = 5
+        store.setSnapshotReady()
+        #expect(store.pendingQuickCommandInsert?.terminalID == "created")
+
+        // Once THIS terminal is subscribed and rendered, the paste happens once, without Enter.
+        store.activeTerminalID = "created"
+        store.setSnapshotReady()
+        #expect(store.pendingQuickCommandInsert == nil)
+    }
+
+    @MainActor
+    @Test func quickCommandRunWithoutInsertOnlyOpensTerminal() {
+        let store = RemoteWorkspaceStore()
+        store.pendingQuickCommandRun = PendingQuickCommandRun(operationID: "op-2")
+        store.runningQuickCommandID = "qc-run"
+        store.apply(Self.message(
+            type: "operation.result",
+            operationID: "op-2",
+            payload: ["terminal": Self.terminalObject(id: "created"), "insert_text": .null]
+        ))
+
+        #expect(store.launchedQuickCommandTerminal?.id == "created")
+        #expect(store.pendingQuickCommandInsert == nil)
+    }
+
+    @MainActor
+    @Test func unrelatedOperationResultDoesNotCompleteQuickCommandRun() {
+        let store = RemoteWorkspaceStore()
+        store.pendingQuickCommandRun = PendingQuickCommandRun(operationID: "op-quick")
+        store.runningQuickCommandID = "qc-run"
+        // A plain terminal.create result carries a different operation ID.
+        store.apply(Self.message(
+            type: "operation.result",
+            operationID: "op-create",
+            payload: ["terminal": Self.terminalObject(id: "manual")]
+        ))
+
+        #expect(store.runningQuickCommandID == "qc-run")
+        #expect(store.launchedQuickCommandTerminal == nil)
+        #expect(store.pendingQuickCommandInsert == nil)
+    }
+
+    @MainActor
+    @Test func quickCommandRunRejectionShowsFullMessageWithoutTerminalFallback() {
+        let store = RemoteWorkspaceStore()
+        store.pendingQuickCommandRun = PendingQuickCommandRun(operationID: "op-3")
+        store.runningQuickCommandID = "qc-agent"
+        let rejection = "unknown method session.tabs.createTerminal\nagent prompt is not supported by this Orca build"
+        store.apply(Self.message(
+            type: "protocol.error",
+            operationID: "op-3",
+            payload: ["ok": .bool(false), "code": .string("method_not_found"), "message": .string(rejection)]
+        ))
+
+        // The Runtime rejection is shown verbatim, never truncated.
+        #expect(store.quickCommandRunError == rejection)
+        #expect(store.runningQuickCommandID == nil)
+        #expect(store.pendingQuickCommandRun == nil)
+        #expect(store.pendingQuickCommandInsert == nil)
+    }
+
+    @MainActor
+    @Test func connectionChangeClearsCommandsAndAbortsPendingWorkWithoutRepeat() {
+        let store = RemoteWorkspaceStore()
+        store.apply(Self.message(
+            type: "operation.result",
+            payload: ["workspace_id": .string("ws"), "commands": Self.commandObjects()]
+        ))
+        store.pendingQuickCommandRun = PendingQuickCommandRun(operationID: "op-4")
+        store.runningQuickCommandID = "qc-run"
+        store.pendingQuickCommandInsert = PendingQuickCommandInsert(terminalID: "t", text: "echo")
+
+        store.disconnect()
+
+        // Commands of the old host are dropped and nothing is repeated automatically.
+        #expect(store.quickCommands.isEmpty)
+        #expect(store.pendingQuickCommandRun == nil)
+        #expect(store.runningQuickCommandID == nil)
+        #expect(store.pendingQuickCommandInsert == nil)
+        #expect(store.quickCommandRunError != nil)
+    }
+
+    private static func message(type: String, operationID: String? = nil, payload: [String: JSONValue]) -> RemoteControlEnvelope {
+        RemoteControlEnvelope(version: 1, type: type, requestID: "request", operationID: operationID, payload: DataValue(payload))
+    }
+
+    private static func workspace(projectID: String) -> RemoteWorkspace {
+        RemoteWorkspace(
+            id: "ws", projectID: projectID, projectName: "tax", path: "/workspace", branch: "main",
+            displayName: "tax", terminalCount: 1, agentState: "active"
+        )
+    }
+
+    private static func terminalObject(id: String) -> JSONValue {
+        .object([
+            "id": .string(id),
+            "workspace_id": .string("ws"),
+            "title": .string("Terminal"),
+            "connected": .bool(true),
+            "writable": .bool(true),
+        ])
+    }
+
+    private static func commandObjects() -> [JSONValue] {
+        [
+            .object([
+                "id": .string("qc-run"), "label": .string("Status"), "scope": .string("global"), "repo_id": .null,
+                "action": .string("terminal-command"), "command": .string("git status"), "append_enter": .bool(true),
+                "agent": .null, "prompt": .null,
+            ]),
+            .object([
+                "id": .string("qc-other"), "label": .string("Other"), "scope": .string("repo"), "repo_id": .string("other-repo"),
+                "action": .string("terminal-command"), "command": .string("echo no"), "append_enter": .bool(true),
+                "agent": .null, "prompt": .null,
+            ]),
+            .object([
+                "id": .string("qc-paste"), "label": .string("Paste"), "scope": .string("repo"), "repo_id": .string("repo"),
+                "action": .string("terminal-command"), "command": .string("echo one\necho two"), "append_enter": .bool(false),
+                "agent": .null, "prompt": .null,
+            ]),
+        ]
+    }
 }
