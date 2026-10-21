@@ -78,6 +78,26 @@ def test_terminal_binary_frame_round_trip_and_limits():
         TerminalFrame.decode(b"short")
 
 
+def test_quick_command_control_messages_round_trip():
+    listing = ControlMessage(
+        type=MessageType.QUICK_COMMAND_LIST,
+        request_id="request",
+        payload={"workspace_id": "workspace"},
+    )
+    assert ControlMessage.decode(listing.encode()).type is MessageType.QUICK_COMMAND_LIST
+
+    run = ControlMessage(
+        type=MessageType.QUICK_COMMAND_RUN,
+        request_id="request",
+        operation_id="quick-run-once",
+        payload={"workspace_id": "workspace", "command_id": "qc-1"},
+    )
+    decoded = ControlMessage.decode(run.encode())
+    assert decoded.type is MessageType.QUICK_COMMAND_RUN
+    assert decoded.operation_id == "quick-run-once"
+    assert decoded.payload == {"workspace_id": "workspace", "command_id": "qc-1"}
+
+
 def test_rejects_invalid_keys_and_session_parameters():
     with pytest.raises(ValueError):
         decode_key("short")

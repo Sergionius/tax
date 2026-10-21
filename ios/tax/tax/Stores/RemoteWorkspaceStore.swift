@@ -1,6 +1,11 @@
 import Foundation
 import Observation
 
+/// An in-flight Quick Command launch keyed by its operation ID.
+struct PendingQuickCommandRun: Equatable, Sendable {
+    let operationID: String
+}
+
 @MainActor
 @Observable
 final class RemoteWorkspaceStore {
@@ -19,12 +24,20 @@ final class RemoteWorkspaceStore {
     var activeStreamID: UInt32?
     var activeGeneration: UInt64?
     var activeTerminalViewport: TerminalRendererViewport?
+    var quickCommands: [String: [RemoteQuickCommand]] = [:]
+    var isLoadingQuickCommands = false
+    var quickCommandError: String?
+    var quickCommandRunError: String?
+    var runningQuickCommandID: String?
+    var launchedQuickCommandTerminal: RemoteTerminal?
 
     @ObservationIgnored private let screenshotMode: Bool
     @ObservationIgnored private var client: RemoteClient?
     @ObservationIgnored private var eventTask: Swift.Task<Void, Never>?
     @ObservationIgnored private var configuration: RemoteConfiguration?
     @ObservationIgnored private var activeTerminalID: String?
+    @ObservationIgnored var pendingQuickCommandRun: PendingQuickCommandRun?
+    @ObservationIgnored var pendingQuickCommandListID: String?
     @ObservationIgnored private var terminalClientSequence: UInt64 = 0
     @ObservationIgnored private var terminalRenderSequence: UInt64 = 0
     @ObservationIgnored private var pendingTerminalViewport: TerminalRendererViewport?
@@ -87,6 +100,47 @@ final class RemoteWorkspaceStore {
         guard !screenshotMode else { return }
         do { try await client?.sendControl(type: "terminal.list", payload: ["workspace_id": .string(workspaceID)]) }
         catch { errorMessage = error.localizedDescription }
+    }
+
+    func loadQuickCommands(workspaceID: String) async {
+        guard !screenshotMode else { return }
+        let operationID = UUID().uuidString
+        pendingQuickCommandListID = operationID
+        isLoadingQuickCommands = true
+        quickCommandError = nil
+        do {
+            try await client?.sendControl(type: "quick_command.list", operationID: operationID, payload: ["workspace_id": .string(workspaceID)])
+        } catch {
+            pendingQuickCommandListID = nil
+            isLoadingQuickCommands = false
+            quickCommandError = error.localizedDescription
+        }
+    }
+
+    /// Sends exactly one run operation per tap and only the command ID; the
+    /// host re-reads the command from Orca. Taps stay blocked until the host
+    /// answers, and an ambiguous send failure is never repeated automatically.
+    func runQuickCommand(workspace: RemoteWorkspace, command: RemoteQuickCommand) async {
+        guard !screenshotMode, client != nil, runningQuickCommandID == nil else { return }
+        quickCommandRunError = nil
+        let operationID = UUID().uuidString
+        runningQuickCommandID = command.id
+        pendingQuickCommandRun = PendingQuickCommandRun(operationID: operationID)
+        do {
+            try await client?.sendControl(
+                type: "quick_command.run",
+                operationID: operationID,
+                payload: ["workspace_id": .string(workspace.id), "command_id": .string(command.id)]
+            )
+        } catch {
+            pendingQuickCommandRun = nil
+            runningQuickCommandID = nil
+            quickCommandRunError = error.localizedDescription
+        }
+    }
+
+    func consumeLaunchedQuickCommandTerminal() {
+        launchedQuickCommandTerminal = nil
     }
 
     func activateTerminal(terminalID: String, viewport: TerminalRendererViewport) async {
@@ -152,6 +206,42 @@ final class RemoteWorkspaceStore {
     func setSnapshotReady() {
         terminalSnapshotReady = true
         terminalReconnectInProgress = false
+    }
+
+    private func completeQuickCommandRun(terminal: RemoteTerminal) {
+        pendingQuickCommandRun = nil
+        runningQuickCommandID = nil
+        var list = terminals[terminal.workspaceID] ?? []
+        if !list.contains(where: { $0.id == terminal.id }) { list.append(terminal) }
+        terminals[terminal.workspaceID] = list
+        launchedQuickCommandTerminal = terminal
+        Swift.Task { await loadTerminals(workspaceID: terminal.workspaceID) }
+    }
+
+    private func finishQuickCommandRun(withError message: String) {
+        pendingQuickCommandRun = nil
+        runningQuickCommandID = nil
+        // Runtime rejections are shown verbatim; they are never typed into a terminal.
+        quickCommandRunError = message
+    }
+
+    /// A dropped connection makes an in-flight launch ambiguous; never retry it.
+    private func abortPendingQuickCommands() {
+        guard pendingQuickCommandRun != nil else { return }
+        pendingQuickCommandRun = nil
+        runningQuickCommandID = nil
+        quickCommandRunError = "Connection dropped. The pending quick command was not repeated."
+    }
+
+    private func clearQuickCommandState() {
+        // Commands belong to one host: drop them whenever the connection changes
+        // so another host's commands are never shown.
+        quickCommands = [:]
+        isLoadingQuickCommands = false
+        quickCommandError = nil
+        quickCommandRunError = nil
+        launchedQuickCommandTerminal = nil
+        pendingQuickCommandListID = nil
     }
 
     func rendererDidChange() {
@@ -283,6 +373,8 @@ final class RemoteWorkspaceStore {
         terminalFlushTask = nil
         pendingTerminalOutput.removeAll(keepingCapacity: true)
         if configuration != nil { connectionState = .reconnecting }
+        clearQuickCommandState()
+        abortPendingQuickCommands()
     }
 
     func resume(settings: SettingsStore) async {
@@ -311,6 +403,8 @@ final class RemoteWorkspaceStore {
         terminalFlushTask = nil
         pendingTerminalOutput.removeAll(keepingCapacity: true)
         isSavingFile = false
+        clearQuickCommandState()
+        abortPendingQuickCommands()
     }
 
     private func consume(client: RemoteClient) async {
@@ -334,6 +428,8 @@ final class RemoteWorkspaceStore {
                 terminalFlushTask?.cancel()
                 terminalFlushTask = nil
                 pendingTerminalOutput.removeAll(keepingCapacity: true)
+                clearQuickCommandState()
+                abortPendingQuickCommands()
                 if let configuration {
                     try? await Swift.Task.sleep(for: .seconds(1))
                     guard !Swift.Task.isCancelled else { return }
@@ -343,7 +439,8 @@ final class RemoteWorkspaceStore {
         }
     }
 
-    private func apply(_ message: RemoteControlEnvelope) {
+    /// Internal so tests can drive protocol routing without a live connection.
+    func apply(_ message: RemoteControlEnvelope) {
         if message.type == "host.hello" {
             if let diagnostic = message.payload.value["diagnostic"]?.object,
                diagnostic["state"]?.string == "incompatible" {
@@ -365,7 +462,13 @@ final class RemoteWorkspaceStore {
             if message.type == "protocol.error" {
                 isSavingFile = false
                 if message.payload.value["code"]?.string == "file_conflict" { fileConflict = true }
-                else { errorMessage = message.payload.value["message"]?.string }
+                else if let pending = pendingQuickCommandRun, message.operationID == pending.operationID {
+                    finishQuickCommandRun(withError: message.payload.value["message"]?.string ?? "Quick command is unavailable.")
+                } else if let listID = pendingQuickCommandListID, message.operationID == listID {
+                    pendingQuickCommandListID = nil
+                    isLoadingQuickCommands = false
+                    quickCommandError = message.payload.value["message"]?.string ?? "Quick Commands are unavailable."
+                } else { errorMessage = message.payload.value["message"]?.string }
             }
             return
         }
@@ -382,6 +485,19 @@ final class RemoteWorkspaceStore {
             let entries = decode(values, as: RemoteFileEntry.self)
             if payload["query"]?.string != nil { fileSearchResults = entries }
             else { fileEntries[fileKey(workspaceID: workspaceID, path: payload["path"]?.string ?? "")] = entries }
+        }
+        if let values = payload["commands"]?.array,
+           let workspaceID = payload["workspace_id"]?.string,
+           message.operationID == pendingQuickCommandListID {
+            pendingQuickCommandListID = nil
+            isLoadingQuickCommands = false
+            quickCommandError = nil
+            quickCommands[workspaceID] = decode(values, as: RemoteQuickCommand.self)
+        }
+        if let terminal = decode(payload["terminal"], as: RemoteTerminal.self),
+           let pending = pendingQuickCommandRun,
+           message.operationID == pending.operationID {
+            completeQuickCommandRun(terminal: terminal)
         }
         if let workspaceID = payload["workspace_id"]?.string,
            let path = payload["path"]?.string,
@@ -460,5 +576,11 @@ final class RemoteWorkspaceStore {
                   let data = try? JSONEncoder().encode(DataValue(object)) else { return nil }
             return try? JSONDecoder().decode(T.self, from: data)
         }
+    }
+
+    private func decode<T: Decodable>(_ value: JSONValue?, as type: T.Type) -> T? {
+        guard case let .object(object) = value,
+              let data = try? JSONEncoder().encode(DataValue(object)) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
     }
 }

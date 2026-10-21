@@ -8,6 +8,20 @@ Terminal rendering is isolated behind an independent tax-owned renderer contract
 
 `TerminalView` forwards ordinary keyboard and paste input and provides Escape, Tab, Ctrl, Ctrl-C, arrows, and Enter controls. Renderer cell metrics produce terminal resize operations.
 
+### Quick Commands
+
+The workspace view lists the Quick Commands saved in Orca. The list is read on the Mac when the workspace opens and is cleared when the connection changes, so commands from another host or repository are never shown: only global commands and repo-scoped commands whose `repoId` matches the workspace project ID, in Orca's order. TAX cannot create, edit, or delete them.
+
+Loading, empty ("No Quick Commands saved in Orca"), and error states are shown in place; load errors offer a reload. Tapping a command sends a single `quick_command.run` operation carrying only the command ID: the Mac re-reads the current list from Orca, checks that the command still applies to the workspace, and creates the terminal there. The tapped row is blocked until a result arrives; the app then refreshes the terminal list and opens the created terminal.
+
+Both command types run in a new terminal:
+
+- A terminal command with `appendEnter=true` (the default) is **executed**: Orca delivers it to the new shell once it is ready, with non-empty lines of a multi-line command joined with `"; "`.
+- A terminal command with `appendEnter=false` is **not executed**: the host creates an empty terminal and inserts the text through Orca's `terminal.send` with `enter: false`, rather than sending raw terminal bytes. It runs only when the user presses Enter.
+- An agent prompt opens the selected agent in the new terminal with the saved prompt.
+
+Runtime rejections and unavailable commands are shown verbatim as errors; they are never typed into a terminal as a fallback. A dropped connection never retries an in-flight launch or text insertion automatically.
+
 ### Terminal renderer acceptance
 
 Using a live Orca terminal session on a physical iPhone, verify the only bundled SwiftTerm renderer:
