@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from tax.orca_runtime import OrcaRuntimeAdapter, OrcaRuntimeError
+from tax.orca_runtime import OrcaRuntimeAdapter, OrcaRuntimeError, QuickCommand
 
 
 class FakeTransport:
@@ -162,6 +162,208 @@ def test_terminal_operations_map_to_private_rpc_without_replaying_input():
     assert transport.calls[2][1]["interrupt"] is True
     assert transport.calls[3][0] == "terminal.updateViewport"
     assert transport.calls[-1] == ("terminal.close", {"terminal": "term_new"})
+
+
+def test_quick_commands_keep_order_fields_and_full_text():
+    transport = FakeTransport(
+        {
+            "settings.getTerminalQuickCommands": {
+                "ok": True,
+                "result": {
+                    "terminalQuickCommands": [
+                        {
+                            "id": "qc-1",
+                            "label": "Status",
+                            "scope": {"type": "global"},
+                            "action": "terminal-command",
+                            "command": "git status",
+                            "appendEnter": True,
+                        },
+                        {
+                            "id": "qc-2",
+                            "label": "Paste plan",
+                            "scope": {"type": "repo", "repoId": "repo"},
+                            "action": "terminal-command",
+                            "command": "echo one\n\necho two\n",
+                            "appendEnter": False,
+                        },
+                        {
+                            "id": "qc-3",
+                            "label": "Review",
+                            "scope": {"type": "repo", "repoId": "repo"},
+                            "action": "agent-prompt",
+                            "agent": "pi",
+                            "prompt": "Review\r\nthe diff  ",
+                        },
+                        {"id": "broken", "label": "Broken", "action": "agent-prompt", "agent": "pi"},
+                        "garbage",
+                    ]
+                },
+            }
+        }
+    )
+
+    commands = OrcaRuntimeAdapter(transport).list_quick_commands()
+
+    assert [command.id for command in commands] == ["qc-1", "qc-2", "qc-3"]
+    assert transport.calls == [("settings.getTerminalQuickCommands", {})]
+    assert commands[0].scope == "global"
+    assert commands[0].repo_id is None
+    assert commands[0].command == "git status"
+    assert commands[0].append_enter is True
+    assert commands[1].scope == "repo"
+    assert commands[1].repo_id == "repo"
+    assert commands[1].command == "echo one\n\necho two\n"
+    assert commands[1].append_enter is False
+    assert commands[2].action == "agent-prompt"
+    assert commands[2].agent == "pi"
+    assert commands[2].prompt == "Review\r\nthe diff  "
+
+
+def test_quick_commands_report_bad_response_and_runtime_errors_instead_of_empty_list(monkeypatch):
+    malformed = FakeTransport(
+        {"settings.getTerminalQuickCommands": {"ok": True, "result": {"settings": {}}}}
+    )
+    with pytest.raises(OrcaRuntimeError) as caught:
+        OrcaRuntimeAdapter(malformed).list_quick_commands()
+    assert caught.value.code == "invalid_runtime_response"
+
+    incompatible = FakeTransport(
+        failures=[OrcaRuntimeError("method_not_found", "unknown method")]
+    )
+    with pytest.raises(OrcaRuntimeError) as caught:
+        OrcaRuntimeAdapter(incompatible).list_quick_commands()
+    assert caught.value.code == "method_not_found"
+    assert len(incompatible.calls) == 1
+
+    flaky = FakeTransport(
+        responses={"settings.getTerminalQuickCommands": {"ok": True, "result": {"terminalQuickCommands": []}}},
+        failures=[OrcaRuntimeError("runtime_unavailable", "offline", retryable=True), None],
+    )
+    monkeypatch.setattr("tax.orca_runtime.time.sleep", lambda _seconds: None)
+
+    assert OrcaRuntimeAdapter(flaky).list_quick_commands() == []
+    assert len(flaky.calls) == 2
+
+
+def test_launch_quick_command_maps_to_session_tab_rpc():
+    transport = FakeTransport(
+        {
+            "session.tabs.createTerminal": {
+                "ok": True,
+                "result": {
+                    "tab": {"type": "terminal", "id": "tab-1", "terminal": "term_new", "title": "Status"}
+                },
+            }
+        }
+    )
+    adapter = OrcaRuntimeAdapter(transport)
+
+    executed = adapter.launch_quick_command(
+        "repo::/workspace",
+        QuickCommand("qc-1", "Lines", "global", None, "terminal-command", command="echo one\n\necho two"),
+    )
+    assert executed.terminal.id == "term_new"
+    assert executed.terminal.workspace_id == "repo::/workspace"
+    assert executed.terminal.title == "Status"
+    assert transport.calls[0] == (
+        "session.tabs.createTerminal",
+        {
+            "worktree": "id:repo::/workspace",
+            "command": "echo one; echo two",
+            "startupCommandDelivery": "shell-ready",
+        },
+    )
+
+    agent = adapter.launch_quick_command(
+        "repo::/workspace",
+        QuickCommand("qc-3", "Review", "repo", "repo", "agent-prompt", agent="pi", prompt="Review the diff"),
+    )
+    assert agent.terminal.id == "term_new"
+    assert transport.calls[1][1] == {
+        "worktree": "id:repo::/workspace",
+        "agent": "pi",
+        "agentPrompt": "Review the diff",
+    }
+
+
+    transport.responses["session.tabs.createTerminal"] = {
+        "ok": True,
+        "result": {"tab": {"type": "terminal", "id": "tab-2", "terminal": "term_paste", "title": "Paste plan"}},
+    }
+    transport.responses["terminal.send"] = {"ok": True, "result": {"send": {"accepted": True}}}
+    pasted = adapter.launch_quick_command(
+        "repo::/workspace",
+        QuickCommand(
+            "qc-2",
+            "Paste plan",
+            "global",
+            None,
+            "terminal-command",
+            command="echo one\n\necho two\n",
+            append_enter=False,
+        ),
+    )
+    assert pasted.terminal.id == "term_paste"
+    assert "command" not in transport.calls[2][1]
+    assert "startupCommandDelivery" not in transport.calls[2][1]
+    assert transport.calls[3] == (
+        "terminal.send",
+        {
+            "terminal": "term_paste",
+            "text": "echo one\n\necho two\n",
+            "enter": False,
+            "client": {"id": "tax-agent", "type": "desktop"},
+        },
+    )
+
+
+def test_launch_quick_command_reports_rejected_text_insertion():
+    transport = FakeTransport({
+        "session.tabs.createTerminal": {"ok": True, "result": {"tab": {"terminal": "term_paste"}}},
+        "terminal.send": {"ok": True, "result": {"send": {"accepted": False}}},
+    })
+    with pytest.raises(OrcaRuntimeError) as caught:
+        OrcaRuntimeAdapter(transport).launch_quick_command(
+            "workspace",
+            QuickCommand("qc", "Paste", "global", None, "terminal-command", command="first\nsecond", append_enter=False),
+        )
+    assert caught.value.code == "terminal_write_unavailable"
+    assert [method for method, _ in transport.calls] == ["session.tabs.createTerminal", "terminal.send"]
+
+
+def test_launch_quick_command_rejects_incomplete_and_bad_responses():
+    adapter = OrcaRuntimeAdapter(FakeTransport())
+
+    with pytest.raises(ValueError):
+        adapter.launch_quick_command(
+            "repo::/workspace",
+            QuickCommand("qc-1", "Empty", "global", None, "terminal-command", command="   "),
+        )
+    with pytest.raises(ValueError):
+        adapter.launch_quick_command(
+            "repo::/workspace",
+            QuickCommand("qc-2", "Prompt", "global", None, "agent-prompt", agent="pi", prompt="  "),
+        )
+
+    transport = FakeTransport(
+        {"session.tabs.createTerminal": {"ok": True, "result": {"tab": {"type": "terminal", "id": "tab"}}}}
+    )
+    with pytest.raises(OrcaRuntimeError) as caught:
+        OrcaRuntimeAdapter(transport).launch_quick_command(
+            "repo::/workspace",
+            QuickCommand("qc-1", "Status", "global", None, "terminal-command", command="git status"),
+        )
+    assert caught.value.code == "invalid_runtime_response"
+
+    incompatible = FakeTransport(failures=[OrcaRuntimeError("method_not_found", "unknown method")])
+    with pytest.raises(OrcaRuntimeError) as caught:
+        OrcaRuntimeAdapter(incompatible).launch_quick_command(
+            "repo::/workspace",
+            QuickCommand("qc-1", "Status", "global", None, "terminal-command", command="git status"),
+        )
+    assert caught.value.code == "method_not_found"
+    assert len(incompatible.calls) == 1
 
 
 def test_stream_requires_protected_pairing_configuration(tmp_path: Path):

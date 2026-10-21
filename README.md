@@ -2,7 +2,7 @@
 
 A self-hosted, end-to-end encrypted iPhone remote for Orca.
 
-`tax` connects your iPhone to open Orca workspaces and terminals on your Mac through a relay you control. The app renders ANSI/TUI output, sends input to the selected PTY, creates and closes terminals, runs console agents (Pi, Oh My Pi, Claude Code, Codex) and any CLI program, and lets you browse and edit workspace files safely.
+`tax` connects your iPhone to open Orca workspaces and terminals on your Mac through a relay you control. The app renders ANSI/TUI output, sends input to the selected PTY, creates and closes terminals, runs console agents (Pi, Oh My Pi, Claude Code, Codex) and any CLI program, launches Orca Quick Commands in a new terminal (read-only: TAX never edits the list saved in Orca), and lets you browse and edit workspace files safely.
 
 ## Why TAX when Orca already has a mobile app?
 
@@ -183,6 +183,7 @@ The indicator in the top-left corner of the app should turn green and show `onli
 4. Run an agent such as `pi` or `claude` and press `enter`.
 5. Check `Ctrl-C`, resize, rename, and close.
 6. Open **Browse workspace files**, a text file, the Markdown preview, and an image.
+7. Open **Quick Commands** in a workspace, confirm it shows the commands saved in Orca (global plus this repository), and launch one: a terminal command or agent prompt runs in a new terminal that opens automatically, while a command saved with `appendEnter=false` is pasted without Enter and runs only after you press Enter.
 
 For the terminal renderer acceptance steps, see [`ios/README-REMOTE.md`](ios/README-REMOTE.md). To verify the backend and APNs end to end, run on the Mac:
 

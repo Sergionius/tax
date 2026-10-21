@@ -64,6 +64,23 @@ The adapter requires a dedicated Orca pairing code for streaming. Create it thro
 
 Mutating one-shot RPC calls are never retried because a disconnected response has an ambiguous outcome. Read-only calls use bounded exponential backoff. Stream reconnect belongs to the remote host lifecycle: discard the old generation and request a fresh subscription/snapshot rather than replaying input.
 
+## Quick Commands
+
+Quick Commands are read from Orca on the Mac. TAX never creates, edits, or deletes them: the saved list in Orca is the single source of truth, and TAX keeps no local copy. The adapter fetches the list fresh through the local Runtime RPC whenever the device opens a workspace or launches a command.
+
+Additional private one-shot methods are used by `OrcaRuntimeAdapter`:
+
+- `settings.getTerminalQuickCommands` (read-only) returns the saved commands with `id`, `label`, and `scope` (`global`, or `repo` with `repoId`), plus either `action: "terminal-command"` with `command` and `appendEnter`, or `action: "agent-prompt"` with `agent` and `prompt`. Entries with an unknown shape or action are skipped; the command and prompt text is kept in full. A malformed response is never replaced with an empty list.
+- `session.tabs.createTerminal` (mutating) creates the terminal that runs the command. An executed terminal command is sent with `startupCommandDelivery: "shell-ready"`, so Orca delivers it once the new shell is ready, and its non-empty lines are joined with `"; "` to match Orca's own merge rule. An agent prompt is sent as `agent` plus `agentPrompt`. With `appendEnter=false` the host creates an empty terminal and uses Orca's `terminal.send` with `enter: false` to insert the text without executing it. Raw PTY input must not be used here: embedded newlines could run a command.
+
+These methods belong to Orca's private settings/session API. The pinned-build table above verifies the existing terminal protocol, not an end-to-end Quick Commands launch. An Orca release may omit or change these methods; the required-capability probe does not cover them.
+
+Failures are explicit and never silently degraded:
+
+- an RPC rejection (for example an unknown method on an older Orca build) raises `OrcaRuntimeError` carrying Orca's error code and surfaces on the device as a visible `protocol.error`;
+- an unexpected response shape raises `OrcaRuntimeError("invalid_runtime_response", …)` — "Orca returned an unexpected Quick Commands response" or "Orca did not return the created terminal";
+- the remote host resolves a launch by command ID against a freshly read list, so a stale or foreign command fails with "quick command is not available" or "quick command does not apply to this workspace"; the device sends only the ID, never command text.
+
 ## Distribution and compatibility
 
 TAX distributes only its own adapter code: `src/tax/orca_runtime.py` and the bundled terminal bridge (`src/tax/resources/orca-runtime-terminal-bridge.cjs`). Orca protocol helpers (`shared/pairing.js`, `shared/remote-runtime-client.js`, `shared/terminal-stream-protocol.js`) are not packaged; the bridge and the probe load them at runtime from the user's installed Orca build.
@@ -79,6 +96,7 @@ After every Orca update:
 3. subscribe to a fixture terminal and confirm a complete snapshot;
 4. emit a unique line in that PTY and confirm it arrives once as incremental output;
 5. interrupt the connection and confirm a new subscription starts from a fresh snapshot;
-6. regenerate only sanitized fixtures.
+6. launch one saved Quick Command of each type and confirm the terminal command runs in the new terminal and the agent prompt opens;
+7. regenerate only sanitized fixtures.
 
 Never commit runtime metadata, device tokens, pairing URLs, public/private key material, absolute user paths, terminal output, or command contents.

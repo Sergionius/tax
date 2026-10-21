@@ -35,6 +35,8 @@ class MessageType(StrEnum):
     FILE_SEARCH = "file.search"
     FILE_READ = "file.read"
     FILE_WRITE = "file.write"
+    QUICK_COMMAND_LIST = "quick_command.list"
+    QUICK_COMMAND_RUN = "quick_command.run"
     OPERATION_RESULT = "operation.result"
     PROTOCOL_ERROR = "protocol.error"
 
