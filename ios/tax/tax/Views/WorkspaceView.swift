@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkspaceView: View {
     let workspace: RemoteWorkspace
     @Environment(RemoteWorkspaceStore.self) private var store
+    @Environment(AppState.self) private var appState
     @State private var showingCreate = false
     @State private var newTitle = ""
     @State private var renameTarget: RemoteTerminal?
@@ -19,6 +20,7 @@ struct WorkspaceView: View {
     var body: some View {
         List {
             terminalsSection
+            quickCommandsSection
             filesSection
         }
         .listStyle(.plain)
@@ -39,7 +41,24 @@ struct WorkspaceView: View {
                 .accessibilityLabel("New terminal")
             }
         }
-        .task { await store.loadTerminals(workspaceID: workspace.id) }
+        .task {
+            await store.loadTerminals(workspaceID: workspace.id)
+            await store.loadQuickCommands(workspaceID: workspace.id)
+        }
+        .onChange(of: store.connectionState) { _, state in
+            // The list is cleared on every connection change; reload it for this
+            // host once the connection is online again.
+            guard state == .online else { return }
+            Swift.Task {
+                await store.loadTerminals(workspaceID: workspace.id)
+                await store.loadQuickCommands(workspaceID: workspace.id)
+            }
+        }
+        .onChange(of: store.launchedQuickCommandTerminal) { _, launched in
+            guard let launched, launched.workspaceID == workspace.id else { return }
+            store.consumeLaunchedQuickCommandTerminal()
+            appState.navigationPath.append(RemoteNavigationRoute.terminal(launched))
+        }
         .alert("Create terminal", isPresented: $showingCreate) {
             TextField("Title (optional)", text: $newTitle)
             Button("Create") { Swift.Task { await store.createTerminal(workspaceID: workspace.id, title: newTitle); newTitle = "" } }
@@ -74,6 +93,84 @@ struct WorkspaceView: View {
         } header: {
             WorkspaceSectionHeader(title: "Terminals")
         }
+    }
+
+    @ViewBuilder
+    private var quickCommandsSection: some View {
+        Section {
+            quickCommandsContent
+        } header: {
+            WorkspaceSectionHeader(title: "Quick Commands")
+        }
+    }
+
+    @ViewBuilder
+    private var quickCommandsContent: some View {
+        let commands = store.quickCommands[workspace.id]
+        if commands == nil, store.quickCommandError == nil {
+            WorkspaceLoadingState(text: "Loading Quick Commands…")
+        } else {
+            if let message = store.quickCommandError {
+                quickCommandMessageRow(message) {
+                    Swift.Task { await store.loadQuickCommands(workspaceID: workspace.id) }
+                }
+            }
+            if let commands, !commands.isEmpty {
+                ForEach(commands.visible(in: workspace)) { command in
+                    QuickCommandRow(
+                        command: command,
+                        isRunning: store.runningQuickCommandID == command.id,
+                        isBusy: store.runningQuickCommandID != nil
+                    ) {
+                        Swift.Task { await store.runQuickCommand(workspace: workspace, command: command) }
+                    }
+                }
+            } else if store.quickCommandError == nil {
+                quickCommandEmptyRow
+            }
+            if let runError = store.quickCommandRunError {
+                quickCommandMessageRow(runError, retry: nil)
+            }
+        }
+    }
+
+    private var quickCommandEmptyRow: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "bolt")
+                .font(.workspaceUI(.title2))
+                .foregroundStyle(WorkspaceTheme.textDim)
+            Text("No Quick Commands saved in Orca")
+                .font(.workspaceUI(.subheadline))
+                .foregroundStyle(WorkspaceTheme.textLo)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .workspaceCardListRow()
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Shows the host/Runtime message in full; it is never truncated and never
+    /// falls back to typing into a terminal.
+    private func quickCommandMessageRow(_ message: String, retry: (() -> Void)? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.workspaceUI(.subheadline))
+                    .foregroundStyle(WorkspaceTheme.accentLight)
+                Text(message)
+                    .font(.workspaceUI(.footnote))
+                    .foregroundStyle(WorkspaceTheme.textLo)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let retry {
+                Button("Retry", action: retry)
+                    .font(.workspaceUI(.subheadline, weight: .medium))
+                    .foregroundStyle(WorkspaceTheme.accentLight)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
+        .workspaceCardListRow()
     }
 
     private var filesSection: some View {
@@ -125,6 +222,42 @@ struct WorkspaceView: View {
         .padding(.vertical, 16)
         .workspaceCardListRow()
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A Quick Command row: label plus a short type explanation. Tapping sends
+/// one run operation; taps are blocked while another launch is in flight.
+private struct QuickCommandRow: View {
+    let command: RemoteQuickCommand
+    let isRunning: Bool
+    let isBusy: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: command.isAgentPrompt ? "sparkles" : "terminal")
+                    .font(.workspaceUI(.title3))
+                    .foregroundStyle(WorkspaceTheme.accent)
+                    .frame(width: 26)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(command.label)
+                        .font(.workspaceUI(.body, weight: .medium))
+                        .foregroundStyle(WorkspaceTheme.textHi)
+                        .lineLimit(2)
+                    Text(command.kindSummary)
+                        .font(.workspaceUI(.caption, weight: .medium))
+                        .foregroundStyle(WorkspaceTheme.textLo)
+                }
+                Spacer()
+                if isRunning { ProgressView().controlSize(.small) }
+            }
+        }
+        .buttonStyle(WorkspaceCardButtonStyle())
+        .workspaceCardListRow()
+        .disabled(isBusy)
+        .accessibilityLabel(command.label)
+        .accessibilityHint(command.kindSummary)
     }
 }
 
