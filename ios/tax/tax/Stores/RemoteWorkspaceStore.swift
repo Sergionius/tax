@@ -6,13 +6,6 @@ struct PendingQuickCommandRun: Equatable, Sendable {
     let operationID: String
 }
 
-/// Text of an `appendEnter=false` Quick Command waiting for the created
-/// terminal's subscription so it can be pasted once, without Enter.
-struct PendingQuickCommandInsert: Equatable, Sendable {
-    let terminalID: String
-    let text: String
-}
-
 @MainActor
 @Observable
 final class RemoteWorkspaceStore {
@@ -38,17 +31,13 @@ final class RemoteWorkspaceStore {
     var runningQuickCommandID: String?
     var launchedQuickCommandTerminal: RemoteTerminal?
 
-    var pendingQuickCommandInsertTerminalID: String? { pendingQuickCommandInsert?.terminalID }
-
     @ObservationIgnored private let screenshotMode: Bool
     @ObservationIgnored private var client: RemoteClient?
     @ObservationIgnored private var eventTask: Swift.Task<Void, Never>?
     @ObservationIgnored private var configuration: RemoteConfiguration?
-    // Internal so tests can stage Quick Command paste readiness.
-    @ObservationIgnored var activeTerminalID: String?
+    @ObservationIgnored private var activeTerminalID: String?
     @ObservationIgnored var pendingQuickCommandRun: PendingQuickCommandRun?
     @ObservationIgnored var pendingQuickCommandListID: String?
-    var pendingQuickCommandInsert: PendingQuickCommandInsert?
     @ObservationIgnored private var terminalClientSequence: UInt64 = 0
     @ObservationIgnored private var terminalRenderSequence: UInt64 = 0
     @ObservationIgnored private var pendingTerminalViewport: TerminalRendererViewport?
@@ -217,31 +206,15 @@ final class RemoteWorkspaceStore {
     func setSnapshotReady() {
         terminalSnapshotReady = true
         terminalReconnectInProgress = false
-        deliverPendingQuickCommandInsert()
     }
 
-    private func deliverPendingQuickCommandInsert() {
-        guard let insert = pendingQuickCommandInsert,
-              insert.terminalID == activeTerminalID,
-              activeStreamID != nil,
-              terminalSnapshotReady else { return }
-        pendingQuickCommandInsert = nil
-        let text = insert.text
-        Swift.Task { await sendInput(terminalID: insert.terminalID, text: text) }
-    }
-
-    private func completeQuickCommandRun(terminal: RemoteTerminal, insertText: String?) {
+    private func completeQuickCommandRun(terminal: RemoteTerminal) {
         pendingQuickCommandRun = nil
         runningQuickCommandID = nil
         var list = terminals[terminal.workspaceID] ?? []
         if !list.contains(where: { $0.id == terminal.id }) { list.append(terminal) }
         terminals[terminal.workspaceID] = list
         launchedQuickCommandTerminal = terminal
-        if let insertText, !insertText.isEmpty {
-            // appendEnter=false: the host created an empty terminal. Wait for
-            // this terminal's subscription, then paste once without Enter.
-            pendingQuickCommandInsert = PendingQuickCommandInsert(terminalID: terminal.id, text: insertText)
-        }
         Swift.Task { await loadTerminals(workspaceID: terminal.workspaceID) }
     }
 
@@ -252,13 +225,11 @@ final class RemoteWorkspaceStore {
         quickCommandRunError = message
     }
 
-    /// A dropped connection makes an in-flight launch ambiguous and a staged
-    /// paste impossible to attribute: drop both and say so, without repeats.
+    /// A dropped connection makes an in-flight launch ambiguous; never retry it.
     private func abortPendingQuickCommands() {
-        guard pendingQuickCommandRun != nil || pendingQuickCommandInsert != nil else { return }
+        guard pendingQuickCommandRun != nil else { return }
         pendingQuickCommandRun = nil
         runningQuickCommandID = nil
-        pendingQuickCommandInsert = nil
         quickCommandRunError = "Connection dropped. The pending quick command was not repeated."
     }
 
@@ -515,7 +486,9 @@ final class RemoteWorkspaceStore {
             if payload["query"]?.string != nil { fileSearchResults = entries }
             else { fileEntries[fileKey(workspaceID: workspaceID, path: payload["path"]?.string ?? "")] = entries }
         }
-        if let values = payload["commands"]?.array, let workspaceID = payload["workspace_id"]?.string {
+        if let values = payload["commands"]?.array,
+           let workspaceID = payload["workspace_id"]?.string,
+           message.operationID == pendingQuickCommandListID {
             pendingQuickCommandListID = nil
             isLoadingQuickCommands = false
             quickCommandError = nil
@@ -524,7 +497,7 @@ final class RemoteWorkspaceStore {
         if let terminal = decode(payload["terminal"], as: RemoteTerminal.self),
            let pending = pendingQuickCommandRun,
            message.operationID == pending.operationID {
-            completeQuickCommandRun(terminal: terminal, insertText: payload["insert_text"]?.string)
+            completeQuickCommandRun(terminal: terminal)
         }
         if let workspaceID = payload["workspace_id"]?.string,
            let path = payload["path"]?.string,

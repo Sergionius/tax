@@ -69,7 +69,6 @@ class QuickCommand:
 @dataclass(frozen=True, slots=True)
 class QuickCommandLaunch:
     terminal: Terminal
-    insert_text: Optional[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -421,7 +420,7 @@ class OrcaRuntimeAdapter:
 
     def launch_quick_command(self, workspace_id: str, command: QuickCommand) -> QuickCommandLaunch:
         params: dict[str, Any] = {"worktree": f"id:{workspace_id}"}
-        insert_text: Optional[str] = None
+        paste_text: Optional[str] = None
         if command.action == "agent-prompt":
             if not command.agent or not command.agent.strip() or not command.prompt or not command.prompt.strip():
                 raise ValueError("quick command prompt is incomplete")
@@ -434,7 +433,7 @@ class OrcaRuntimeAdapter:
                 params["command"] = self._join_command_lines(command.command)
                 params["startupCommandDelivery"] = "shell-ready"
             else:
-                insert_text = command.command
+                paste_text = command.command
         result = self._mutate("session.tabs.createTerminal", params).get("result", {})
         tab = result.get("tab") if isinstance(result.get("tab"), dict) else result
         handle = tab.get("terminal") if isinstance(tab, dict) else None
@@ -448,7 +447,25 @@ class OrcaRuntimeAdapter:
             connected=True,
             writable=True,
         )
-        return QuickCommandLaunch(terminal=terminal, insert_text=insert_text)
+        if paste_text is not None:
+            # Use Orca's text insertion semantics, not raw PTY bytes: raw newlines
+            # could execute a multiline command even with appendEnter=false.
+            send = self._mutate(
+                "terminal.send",
+                {
+                    "terminal": handle,
+                    "text": paste_text,
+                    "enter": False,
+                    "client": {"id": "tax-agent", "type": "desktop"},
+                },
+            ).get("result", {})
+            if (
+                not isinstance(send, dict)
+                or not isinstance(send.get("send"), dict)
+                or send["send"].get("accepted") is not True
+            ):
+                raise OrcaRuntimeError("terminal_write_unavailable", "Orca did not accept the Quick Command text")
+        return QuickCommandLaunch(terminal=terminal)
 
     @staticmethod
     def _join_command_lines(text: str) -> str:

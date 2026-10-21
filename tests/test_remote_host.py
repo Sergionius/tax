@@ -86,8 +86,7 @@ class FakeRuntime:
     def launch_quick_command(self, workspace_id, command):
         self.launched.append((workspace_id, command))
         terminal = Terminal("created", workspace_id, command.label, True, True)
-        insert_text = None if command.append_enter else command.command
-        return QuickCommandLaunch(terminal, insert_text)
+        return QuickCommandLaunch(terminal)
 
     def list_terminals(self, workspace_id=None):
         return [Terminal("term", workspace_id or "workspace", "Pi", True, True)]
@@ -264,7 +263,6 @@ def test_remote_host_quick_command_list_and_run_with_replay_protection():
     launched = messages[1]
     assert launched.type is MessageType.OPERATION_RESULT
     assert launched.payload["terminal"]["id"] == "created"
-    assert launched.payload["insert_text"] is None
     assert launched.encode() == messages[2].encode()
     assert len(runtime.launched) == 1
 
@@ -291,8 +289,8 @@ def test_remote_host_quick_command_paste_agent_scope_and_errors():
     )
 
     messages = response_messages(connection)
-    assert messages[0].payload["insert_text"] == "echo one\necho two"
-    assert messages[1].payload["insert_text"] is None
+    assert "insert_text" not in messages[0].payload
+    assert "insert_text" not in messages[1].payload
     assert [message.type for message in messages[2:]] == [MessageType.PROTOCOL_ERROR] * 3
     assert all(message.payload["ok"] is False for message in messages[2:])
     assert len(runtime.launched) == 2

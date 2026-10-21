@@ -258,7 +258,7 @@ class RemoteHost:
         if command.scope == "repo" and command.repo_id != workspace.project_id:
             raise ValueError("quick command does not apply to this workspace")
         launch = self.runtime.launch_quick_command(workspace_id, command)
-        return {"terminal": asdict(launch.terminal), "insert_text": launch.insert_text}
+        return {"terminal": asdict(launch.terminal)}
 
     @staticmethod
     def _dimensions(columns: Any, rows: Any) -> tuple[int, int]:

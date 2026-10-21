@@ -17,10 +17,10 @@ Loading, empty ("No Quick Commands saved in Orca"), and error states are shown i
 Both command types run in a new terminal:
 
 - A terminal command with `appendEnter=true` (the default) is **executed**: Orca delivers it to the new shell once it is ready, with non-empty lines of a multi-line command joined with `"; "`.
-- A terminal command with `appendEnter=false` is **not executed**: the host creates an empty terminal and returns the text; after the subscription and first snapshot of that exact terminal are ready, TAX pastes the text once without Enter. It runs only when the user presses Enter.
+- A terminal command with `appendEnter=false` is **not executed**: the host creates an empty terminal and inserts the text through Orca's `terminal.send` with `enter: false`, rather than sending raw terminal bytes. It runs only when the user presses Enter.
 - An agent prompt opens the selected agent in the new terminal with the saved prompt.
 
-Runtime rejections and unavailable commands are shown verbatim as errors; they are never typed into a terminal as a fallback. A dropped connection aborts an in-flight launch and a staged paste without repeating either — input is never replayed automatically.
+Runtime rejections and unavailable commands are shown verbatim as errors; they are never typed into a terminal as a fallback. A dropped connection never retries an in-flight launch or text insertion automatically.
 
 ### Terminal renderer acceptance
 

@@ -180,8 +180,10 @@ struct RemoteProtocolTests {
     @MainActor
     @Test func quickCommandListResultRoutesPerWorkspaceInOrcaOrder() {
         let store = RemoteWorkspaceStore()
+        store.pendingQuickCommandListID = "op-list"
         store.apply(Self.message(
             type: "operation.result",
+            operationID: "op-list",
             payload: ["workspace_id": .string("ws"), "commands": Self.commandObjects()]
         ))
 
@@ -192,6 +194,20 @@ struct RemoteProtocolTests {
         // Filtering keeps the Orca order and hides other repositories' commands.
         let workspace = Self.workspace(projectID: "repo")
         #expect(store.quickCommands["ws"]?.visible(in: workspace).map(\.id) == ["qc-run", "qc-paste"])
+    }
+
+    @MainActor
+    @Test func staleQuickCommandListResultCannotReplaceCurrentHostCommands() {
+        let store = RemoteWorkspaceStore()
+        store.pendingQuickCommandListID = "new-list"
+        store.isLoadingQuickCommands = true
+        store.apply(Self.message(
+            type: "operation.result", operationID: "old-list",
+            payload: ["workspace_id": .string("ws"), "commands": Self.commandObjects()]
+        ))
+        #expect(store.quickCommands.isEmpty)
+        #expect(store.isLoadingQuickCommands)
+        #expect(store.pendingQuickCommandListID == "new-list")
     }
 
     @MainActor
@@ -211,7 +227,7 @@ struct RemoteProtocolTests {
     }
 
     @MainActor
-    @Test func quickCommandRunResultOpensTerminalAndStagesSinglePasteForThatTerminal() {
+    @Test func quickCommandRunResultOpensTerminalAfterHostHandlesPaste() {
         let store = RemoteWorkspaceStore()
         store.pendingQuickCommandRun = PendingQuickCommandRun(operationID: "op-1")
         store.runningQuickCommandID = "qc-paste"
@@ -220,7 +236,6 @@ struct RemoteProtocolTests {
             operationID: "op-1",
             payload: [
                 "terminal": Self.terminalObject(id: "created"),
-                "insert_text": .string("echo one\necho two"),
             ]
         ))
 
@@ -228,18 +243,6 @@ struct RemoteProtocolTests {
         #expect(store.pendingQuickCommandRun == nil)
         #expect(store.launchedQuickCommandTerminal?.id == "created")
         #expect(store.terminals["ws"]?.map(\.id) == ["created"])
-        #expect(store.pendingQuickCommandInsert == PendingQuickCommandInsert(terminalID: "created", text: "echo one\necho two"))
-
-        // A ready subscription for a different terminal must not consume the paste.
-        store.activeTerminalID = "other"
-        store.activeStreamID = 5
-        store.setSnapshotReady()
-        #expect(store.pendingQuickCommandInsert?.terminalID == "created")
-
-        // Once THIS terminal is subscribed and rendered, the paste happens once, without Enter.
-        store.activeTerminalID = "created"
-        store.setSnapshotReady()
-        #expect(store.pendingQuickCommandInsert == nil)
     }
 
     @MainActor
@@ -250,11 +253,10 @@ struct RemoteProtocolTests {
         store.apply(Self.message(
             type: "operation.result",
             operationID: "op-2",
-            payload: ["terminal": Self.terminalObject(id: "created"), "insert_text": .null]
+            payload: ["terminal": Self.terminalObject(id: "created")]
         ))
 
         #expect(store.launchedQuickCommandTerminal?.id == "created")
-        #expect(store.pendingQuickCommandInsert == nil)
     }
 
     @MainActor
@@ -271,7 +273,6 @@ struct RemoteProtocolTests {
 
         #expect(store.runningQuickCommandID == "qc-run")
         #expect(store.launchedQuickCommandTerminal == nil)
-        #expect(store.pendingQuickCommandInsert == nil)
     }
 
     @MainActor
@@ -290,19 +291,19 @@ struct RemoteProtocolTests {
         #expect(store.quickCommandRunError == rejection)
         #expect(store.runningQuickCommandID == nil)
         #expect(store.pendingQuickCommandRun == nil)
-        #expect(store.pendingQuickCommandInsert == nil)
     }
 
     @MainActor
     @Test func connectionChangeClearsCommandsAndAbortsPendingWorkWithoutRepeat() {
         let store = RemoteWorkspaceStore()
+        store.pendingQuickCommandListID = "op-list"
         store.apply(Self.message(
             type: "operation.result",
+            operationID: "op-list",
             payload: ["workspace_id": .string("ws"), "commands": Self.commandObjects()]
         ))
         store.pendingQuickCommandRun = PendingQuickCommandRun(operationID: "op-4")
         store.runningQuickCommandID = "qc-run"
-        store.pendingQuickCommandInsert = PendingQuickCommandInsert(terminalID: "t", text: "echo")
 
         store.disconnect()
 
@@ -310,7 +311,6 @@ struct RemoteProtocolTests {
         #expect(store.quickCommands.isEmpty)
         #expect(store.pendingQuickCommandRun == nil)
         #expect(store.runningQuickCommandID == nil)
-        #expect(store.pendingQuickCommandInsert == nil)
         #expect(store.quickCommandRunError != nil)
     }
 

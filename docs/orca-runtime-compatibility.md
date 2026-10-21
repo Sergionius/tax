@@ -68,12 +68,12 @@ Mutating one-shot RPC calls are never retried because a disconnected response ha
 
 Quick Commands are read from Orca on the Mac. TAX never creates, edits, or deletes them: the saved list in Orca is the single source of truth, and TAX keeps no local copy. The adapter fetches the list fresh through the local Runtime RPC whenever the device opens a workspace or launches a command.
 
-Two additional private one-shot methods are used by `OrcaRuntimeAdapter`:
+Additional private one-shot methods are used by `OrcaRuntimeAdapter`:
 
 - `settings.getTerminalQuickCommands` (read-only) returns the saved commands with `id`, `label`, and `scope` (`global`, or `repo` with `repoId`), plus either `action: "terminal-command"` with `command` and `appendEnter`, or `action: "agent-prompt"` with `agent` and `prompt`. Entries with an unknown shape or action are skipped; the command and prompt text is kept in full. A malformed response is never replaced with an empty list.
-- `session.tabs.createTerminal` (mutating) creates the terminal that runs the command. An executed terminal command is sent with `startupCommandDelivery: "shell-ready"`, so Orca delivers it once the new shell is ready, and its non-empty lines are joined with `"; "` to match Orca's own merge rule. An agent prompt is sent as `agent` plus `agentPrompt`. With `appendEnter=false` the host creates an empty terminal and returns the text so the iOS client can paste it once without Enter.
+- `session.tabs.createTerminal` (mutating) creates the terminal that runs the command. An executed terminal command is sent with `startupCommandDelivery: "shell-ready"`, so Orca delivers it once the new shell is ready, and its non-empty lines are joined with `"; "` to match Orca's own merge rule. An agent prompt is sent as `agent` plus `agentPrompt`. With `appendEnter=false` the host creates an empty terminal and uses Orca's `terminal.send` with `enter: false` to insert the text without executing it. Raw PTY input must not be used here: embedded newlines could run a command.
 
-Both methods belong to Orca's private settings/session API. They are exercised only against the pinned builds in the table above; an older or newer Orca release may not expose them or may change their parameters, and the required-capability probe does not cover them.
+These methods belong to Orca's private settings/session API. The pinned-build table above verifies the existing terminal protocol, not an end-to-end Quick Commands launch. An Orca release may omit or change these methods; the required-capability probe does not cover them.
 
 Failures are explicit and never silently degraded:
 

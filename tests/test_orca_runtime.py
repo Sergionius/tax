@@ -266,7 +266,6 @@ def test_launch_quick_command_maps_to_session_tab_rpc():
     assert executed.terminal.id == "term_new"
     assert executed.terminal.workspace_id == "repo::/workspace"
     assert executed.terminal.title == "Status"
-    assert executed.insert_text is None
     assert transport.calls[0] == (
         "session.tabs.createTerminal",
         {
@@ -281,7 +280,6 @@ def test_launch_quick_command_maps_to_session_tab_rpc():
         QuickCommand("qc-3", "Review", "repo", "repo", "agent-prompt", agent="pi", prompt="Review the diff"),
     )
     assert agent.terminal.id == "term_new"
-    assert agent.insert_text is None
     assert transport.calls[1][1] == {
         "worktree": "id:repo::/workspace",
         "agent": "pi",
@@ -293,6 +291,7 @@ def test_launch_quick_command_maps_to_session_tab_rpc():
         "ok": True,
         "result": {"tab": {"type": "terminal", "id": "tab-2", "terminal": "term_paste", "title": "Paste plan"}},
     }
+    transport.responses["terminal.send"] = {"ok": True, "result": {"send": {"accepted": True}}}
     pasted = adapter.launch_quick_command(
         "repo::/workspace",
         QuickCommand(
@@ -306,9 +305,31 @@ def test_launch_quick_command_maps_to_session_tab_rpc():
         ),
     )
     assert pasted.terminal.id == "term_paste"
-    assert pasted.insert_text == "echo one\n\necho two\n"
     assert "command" not in transport.calls[2][1]
     assert "startupCommandDelivery" not in transport.calls[2][1]
+    assert transport.calls[3] == (
+        "terminal.send",
+        {
+            "terminal": "term_paste",
+            "text": "echo one\n\necho two\n",
+            "enter": False,
+            "client": {"id": "tax-agent", "type": "desktop"},
+        },
+    )
+
+
+def test_launch_quick_command_reports_rejected_text_insertion():
+    transport = FakeTransport({
+        "session.tabs.createTerminal": {"ok": True, "result": {"tab": {"terminal": "term_paste"}}},
+        "terminal.send": {"ok": True, "result": {"send": {"accepted": False}}},
+    })
+    with pytest.raises(OrcaRuntimeError) as caught:
+        OrcaRuntimeAdapter(transport).launch_quick_command(
+            "workspace",
+            QuickCommand("qc", "Paste", "global", None, "terminal-command", command="first\nsecond", append_enter=False),
+        )
+    assert caught.value.code == "terminal_write_unavailable"
+    assert [method for method, _ in transport.calls] == ["session.tabs.createTerminal", "terminal.send"]
 
 
 def test_launch_quick_command_rejects_incomplete_and_bad_responses():

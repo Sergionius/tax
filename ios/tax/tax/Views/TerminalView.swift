@@ -21,14 +21,6 @@ struct TerminalView: View {
                                 .foregroundStyle(.white)
                                 .padding(14)
                                 .background(.black.opacity(0.72), in: .rect(cornerRadius: 12))
-                        } else if store.pendingQuickCommandInsertTerminalID == terminal.id {
-                            // appendEnter=false command text is pasted once this
-                            // terminal's subscription is ready, without Enter.
-                            ProgressView("Pasting command text…")
-                                .tint(.white)
-                                .foregroundStyle(.white)
-                                .padding(14)
-                                .background(.black.opacity(0.72), in: .rect(cornerRadius: 12))
                         }
                     }
                     .allowsHitTesting(false)
