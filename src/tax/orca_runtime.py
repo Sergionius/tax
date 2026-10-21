@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import socket
 import subprocess
 import threading
@@ -50,6 +51,25 @@ class Terminal:
     writable: bool
     columns: Optional[int] = None
     rows: Optional[int] = None
+
+
+@dataclass(frozen=True, slots=True)
+class QuickCommand:
+    id: str
+    label: str
+    scope: str
+    repo_id: Optional[str]
+    action: str
+    command: Optional[str] = None
+    append_enter: bool = True
+    agent: Optional[str] = None
+    prompt: Optional[str] = None
+
+
+@dataclass(frozen=True, slots=True)
+class QuickCommandLaunch:
+    terminal: Terminal
+    insert_text: Optional[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +121,10 @@ class WorkspaceRuntime(Protocol):
     def resize_terminal(self, terminal_id: str, columns: int, rows: int) -> None: ...
 
     def create_terminal(self, workspace_id: str, title: Optional[str] = None) -> Terminal: ...
+
+    def list_quick_commands(self) -> list[QuickCommand]: ...
+
+    def launch_quick_command(self, workspace_id: str, command: QuickCommand) -> QuickCommandLaunch: ...
 
     def rename_terminal(self, terminal_id: str, title: str) -> None: ...
 
@@ -387,6 +411,89 @@ class OrcaRuntimeAdapter:
         if not isinstance(row, dict) or not row.get("handle"):
             raise OrcaRuntimeError("invalid_runtime_response", "Orca did not return the created terminal")
         return self._terminal(row, workspace_id)
+
+    def list_quick_commands(self) -> list[QuickCommand]:
+        result = self._read("settings.getTerminalQuickCommands", {}).get("result")
+        if not isinstance(result, dict) or not isinstance(result.get("terminalQuickCommands"), list):
+            raise OrcaRuntimeError("invalid_runtime_response", "Orca returned an unexpected Quick Commands response")
+        commands = (self._quick_command(row) for row in result["terminalQuickCommands"])
+        return [command for command in commands if command is not None]
+
+    def launch_quick_command(self, workspace_id: str, command: QuickCommand) -> QuickCommandLaunch:
+        params: dict[str, Any] = {"worktree": f"id:{workspace_id}"}
+        insert_text: Optional[str] = None
+        if command.action == "agent-prompt":
+            if not command.agent or not command.agent.strip() or not command.prompt or not command.prompt.strip():
+                raise ValueError("quick command prompt is incomplete")
+            params["agent"] = command.agent
+            params["agentPrompt"] = command.prompt
+        else:
+            if not command.command or not command.command.strip():
+                raise ValueError("quick command text is incomplete")
+            if command.append_enter:
+                params["command"] = self._join_command_lines(command.command)
+                params["startupCommandDelivery"] = "shell-ready"
+            else:
+                insert_text = command.command
+        result = self._mutate("session.tabs.createTerminal", params).get("result", {})
+        tab = result.get("tab") if isinstance(result.get("tab"), dict) else result
+        handle = tab.get("terminal") if isinstance(tab, dict) else None
+        if not isinstance(handle, str) or not handle:
+            raise OrcaRuntimeError("invalid_runtime_response", "Orca did not return the created terminal")
+        title = tab.get("title")
+        terminal = Terminal(
+            id=handle,
+            workspace_id=workspace_id,
+            title=title if isinstance(title, str) and title.strip() else "Terminal",
+            connected=True,
+            writable=True,
+        )
+        return QuickCommandLaunch(terminal=terminal, insert_text=insert_text)
+
+    @staticmethod
+    def _join_command_lines(text: str) -> str:
+        # Orca merges the non-empty lines of an executed quick command with "; ".
+        lines = (line.strip() for line in re.split(r"\r\n|\r|\n", text))
+        return "; ".join(line for line in lines if line)
+
+    @staticmethod
+    def _quick_command(row: Any) -> Optional[QuickCommand]:
+        if not isinstance(row, dict):
+            return None
+        command_id = row.get("id")
+        label = row.get("label")
+        if not isinstance(command_id, str) or not command_id.strip():
+            return None
+        if not isinstance(label, str) or not label.strip():
+            return None
+        scope_row = row.get("scope") if isinstance(row.get("scope"), dict) else {}
+        repo_id = scope_row.get("repoId")
+        if scope_row.get("type") == "repo" and isinstance(repo_id, str) and repo_id.strip():
+            scope, repo_id = "repo", repo_id.strip()
+        else:
+            scope, repo_id = "global", None
+        fields: dict[str, Any] = {
+            "id": command_id.strip(),
+            "label": label.strip(),
+            "scope": scope,
+            "repo_id": repo_id,
+        }
+        if row.get("action") == "agent-prompt":
+            agent, prompt = row.get("agent"), row.get("prompt")
+            if not isinstance(agent, str) or not agent.strip() or not isinstance(prompt, str) or not prompt.strip():
+                return None
+            return QuickCommand(**fields, action="agent-prompt", agent=agent.strip(), prompt=prompt)
+        if row.get("action") == "terminal-command":
+            command = row.get("command")
+            if not isinstance(command, str) or not command.strip():
+                return None
+            return QuickCommand(
+                **fields,
+                action="terminal-command",
+                command=command,
+                append_enter=row.get("appendEnter") is not False,
+            )
+        return None
 
     def rename_terminal(self, terminal_id: str, title: str) -> None:
         if not title.strip():

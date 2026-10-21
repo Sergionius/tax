@@ -194,6 +194,13 @@ class RemoteHost:
             self._close_terminal_subscription(terminal_id)
             self.runtime.close_terminal(terminal_id)
             return {"accepted": True}
+        if request.type is MessageType.QUICK_COMMAND_LIST:
+            return {
+                "workspace_id": str(payload.get("workspace_id") or ""),
+                "commands": [asdict(item) for item in self.runtime.list_quick_commands()],
+            }
+        if request.type is MessageType.QUICK_COMMAND_RUN:
+            return self._run_quick_command(str(payload["workspace_id"]), str(payload["command_id"]))
         if request.type is MessageType.FILE_LIST:
             entries = self.file_service.list(
                 str(payload["workspace_id"]),
@@ -239,6 +246,19 @@ class RemoteHost:
                 "saved": True,
             }
         raise ValueError(f"unsupported message type: {request.type}")
+
+    def _run_quick_command(self, workspace_id: str, command_id: str) -> dict[str, Any]:
+        workspace = next((item for item in self.runtime.list_workspaces() if item.id == workspace_id), None)
+        if workspace is None:
+            raise ValueError("unknown workspace")
+        # Re-read the current list and never trust command text sent by the device.
+        command = next((item for item in self.runtime.list_quick_commands() if item.id == command_id), None)
+        if command is None:
+            raise ValueError("quick command is not available")
+        if command.scope == "repo" and command.repo_id != workspace.project_id:
+            raise ValueError("quick command does not apply to this workspace")
+        launch = self.runtime.launch_quick_command(workspace_id, command)
+        return {"terminal": asdict(launch.terminal), "insert_text": launch.insert_text}
 
     @staticmethod
     def _dimensions(columns: Any, rows: Any) -> tuple[int, int]:

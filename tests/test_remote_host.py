@@ -2,7 +2,14 @@ import base64
 import time
 
 from tax.file_service import ScopedFileService
-from tax.orca_runtime import RuntimeDiagnostic, Terminal, TerminalEvent, Workspace
+from tax.orca_runtime import (
+    QuickCommand,
+    QuickCommandLaunch,
+    RuntimeDiagnostic,
+    Terminal,
+    TerminalEvent,
+    Workspace,
+)
 from tax.remote_host import CONTROL_CHANNEL, TERMINAL_CHANNEL, RemoteHost
 from tax.remote_protocol import ControlMessage, MessageType, TerminalFrame, TerminalOpcode
 
@@ -48,15 +55,39 @@ class FakeStream:
 class FakeRuntime:
     def __init__(self):
         self.created = 0
+        self.launched = []
         self.input = []
         self.closed = []
         self.stream = None
+        self.quick_commands = [
+            QuickCommand("qc-run", "Status", "global", None, "terminal-command", command="git status"),
+            QuickCommand(
+                "qc-paste",
+                "Paste",
+                "repo",
+                "repo",
+                "terminal-command",
+                command="echo one\necho two",
+                append_enter=False,
+            ),
+            QuickCommand("qc-other", "Other", "repo", "other-repo", "terminal-command", command="echo no"),
+            QuickCommand("qc-agent", "Review", "repo", "repo", "agent-prompt", agent="pi", prompt="Review"),
+        ]
 
     def diagnostic(self):
         return RuntimeDiagnostic("online", orca_version="1.4.188", runtime_id="runtime")
 
     def list_workspaces(self):
         return [Workspace("workspace", "repo", "tax", "/workspace", "main", "main", 1, "active")]
+
+    def list_quick_commands(self):
+        return list(self.quick_commands)
+
+    def launch_quick_command(self, workspace_id, command):
+        self.launched.append((workspace_id, command))
+        terminal = Terminal("created", workspace_id, command.label, True, True)
+        insert_text = None if command.append_enter else command.command
+        return QuickCommandLaunch(terminal, insert_text)
 
     def list_terminals(self, workspace_id=None):
         return [Terminal("term", workspace_id or "workspace", "Pi", True, True)]
@@ -208,6 +239,84 @@ def test_remote_host_file_round_trip_and_conflict(tmp_path):
         )
     )
     assert path.read_text() == "second"
+
+
+def test_remote_host_quick_command_list_and_run_with_replay_protection():
+    runtime = FakeRuntime()
+    connection = FakeConnection()
+    host = RemoteHost(runtime, connection)
+
+    host._handle_control(request(MessageType.QUICK_COMMAND_LIST, {"workspace_id": "workspace"}))
+    run = request(
+        MessageType.QUICK_COMMAND_RUN,
+        {"workspace_id": "workspace", "command_id": "qc-run"},
+        operation_id="quick-run-once",
+    )
+    host._handle_control(run)
+    host._handle_control(run)
+
+    messages = response_messages(connection)
+    listed = messages[0].payload
+    assert listed["workspace_id"] == "workspace"
+    assert [command["id"] for command in listed["commands"]] == ["qc-run", "qc-paste", "qc-other", "qc-agent"]
+    assert listed["commands"][0]["append_enter"] is True
+
+    launched = messages[1]
+    assert launched.type is MessageType.OPERATION_RESULT
+    assert launched.payload["terminal"]["id"] == "created"
+    assert launched.payload["insert_text"] is None
+    assert launched.encode() == messages[2].encode()
+    assert len(runtime.launched) == 1
+
+
+def test_remote_host_quick_command_paste_agent_scope_and_errors():
+    runtime = FakeRuntime()
+    connection = FakeConnection()
+    host = RemoteHost(runtime, connection)
+
+    host._handle_control(
+        request(MessageType.QUICK_COMMAND_RUN, {"workspace_id": "workspace", "command_id": "qc-paste"})
+    )
+    host._handle_control(
+        request(MessageType.QUICK_COMMAND_RUN, {"workspace_id": "workspace", "command_id": "qc-agent"})
+    )
+    host._handle_control(
+        request(MessageType.QUICK_COMMAND_RUN, {"workspace_id": "workspace", "command_id": "qc-other"})
+    )
+    host._handle_control(
+        request(MessageType.QUICK_COMMAND_RUN, {"workspace_id": "workspace", "command_id": "missing"})
+    )
+    host._handle_control(
+        request(MessageType.QUICK_COMMAND_RUN, {"workspace_id": "unknown", "command_id": "qc-run"})
+    )
+
+    messages = response_messages(connection)
+    assert messages[0].payload["insert_text"] == "echo one\necho two"
+    assert messages[1].payload["insert_text"] is None
+    assert [message.type for message in messages[2:]] == [MessageType.PROTOCOL_ERROR] * 3
+    assert all(message.payload["ok"] is False for message in messages[2:])
+    assert len(runtime.launched) == 2
+
+
+def test_remote_host_quick_command_surfaces_runtime_incompatibility():
+    runtime = FakeRuntime()
+
+    def fail_launch(_workspace_id, _command):
+        from tax.orca_runtime import OrcaRuntimeError
+
+        raise OrcaRuntimeError("method_not_found", "unknown method")
+
+    runtime.launch_quick_command = fail_launch
+    connection = FakeConnection()
+    host = RemoteHost(runtime, connection)
+
+    host._handle_control(
+        request(MessageType.QUICK_COMMAND_RUN, {"workspace_id": "workspace", "command_id": "qc-run"})
+    )
+
+    error = response_messages(connection)[-1]
+    assert error.type is MessageType.PROTOCOL_ERROR
+    assert error.payload["code"] == "method_not_found"
 
 
 def test_remote_host_rejects_plaintext_and_invalid_subscription_dimensions():
