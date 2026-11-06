@@ -178,6 +178,41 @@ struct RemoteProtocolTests {
     }
 
     @MainActor
+    @Test func terminalSubscribeFailureStaysOnTerminalAndRetryResetsError() async throws {
+        let store = RemoteWorkspaceStore()
+        await store.activateTerminal(terminalID: "term-1", viewport: TerminalRendererViewport(columns: 80, rows: 24))
+        let requestID = try #require(store.pendingTerminalSubscribeRequestID)
+        store.apply(Self.message(
+            type: "protocol.error", requestID: requestID,
+            payload: ["message": .string("Orca protocol helper is unavailable")]
+        ))
+        #expect(store.terminalErrorMessage == "Orca protocol helper is unavailable")
+        #expect(store.errorMessage == nil)
+        #expect(!store.terminalSnapshotReady)
+
+        await store.retryTerminal(terminalID: "term-1")
+        #expect(store.terminalErrorMessage == nil)
+        #expect(store.pendingTerminalSubscribeRequestID != requestID)
+    }
+
+    @MainActor
+    @Test func terminalStreamFailureStaysOnTerminalButUnrelatedErrorsRemainGlobal() async {
+        let store = RemoteWorkspaceStore()
+        await store.activateTerminal(terminalID: "term-1", viewport: TerminalRendererViewport(columns: 80, rows: 24))
+        store.apply(Self.message(
+            type: "protocol.error", requestID: "stream-event",
+            payload: ["terminal_id": .string("term-1"), "message": .string("Stream closed")]
+        ))
+        #expect(store.terminalErrorMessage == "Stream closed")
+        #expect(store.errorMessage == nil)
+        store.apply(Self.message(
+            type: "protocol.error", requestID: "other-request",
+            payload: ["message": .string("Unrelated failure")]
+        ))
+        #expect(store.errorMessage == "Unrelated failure")
+    }
+
+    @MainActor
     @Test func quickCommandListResultRoutesPerWorkspaceInOrcaOrder() {
         let store = RemoteWorkspaceStore()
         store.pendingQuickCommandListID = "op-list"
@@ -314,8 +349,8 @@ struct RemoteProtocolTests {
         #expect(store.quickCommandRunError != nil)
     }
 
-    private static func message(type: String, operationID: String? = nil, payload: [String: JSONValue]) -> RemoteControlEnvelope {
-        RemoteControlEnvelope(version: 1, type: type, requestID: "request", operationID: operationID, payload: DataValue(payload))
+    private static func message(type: String, requestID: String = "request", operationID: String? = nil, payload: [String: JSONValue]) -> RemoteControlEnvelope {
+        RemoteControlEnvelope(version: 1, type: type, requestID: requestID, operationID: operationID, payload: DataValue(payload))
     }
 
     private static func workspace(projectID: String) -> RemoteWorkspace {

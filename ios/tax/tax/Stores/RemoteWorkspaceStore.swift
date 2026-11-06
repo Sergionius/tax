@@ -15,6 +15,7 @@ final class RemoteWorkspaceStore {
     var terminalRenderUpdate = TerminalRenderUpdate.empty
     var terminalSnapshotReady = false
     var terminalReconnectInProgress = false
+    var terminalErrorMessage: String?
     var fileEntries: [String: [RemoteFileEntry]] = [:]
     var fileSearchResults: [RemoteFileEntry] = []
     var openDocument: RemoteFileDocument?
@@ -36,6 +37,7 @@ final class RemoteWorkspaceStore {
     @ObservationIgnored private var eventTask: Swift.Task<Void, Never>?
     @ObservationIgnored private var configuration: RemoteConfiguration?
     @ObservationIgnored private var activeTerminalID: String?
+    @ObservationIgnored var pendingTerminalSubscribeRequestID: String?
     @ObservationIgnored var pendingQuickCommandRun: PendingQuickCommandRun?
     @ObservationIgnored var pendingQuickCommandListID: String?
     @ObservationIgnored private var terminalClientSequence: UInt64 = 0
@@ -169,13 +171,26 @@ final class RemoteWorkspaceStore {
         activeGeneration = nil
         terminalSnapshotReady = false
         terminalReconnectInProgress = false
+        terminalErrorMessage = nil
         terminalClientSequence = 0
         sentTerminalViewport = nil
+        let requestID = UUID().uuidString
+        pendingTerminalSubscribeRequestID = requestID
         do {
-            try await client?.sendControl(type: "terminal.subscribe", payload: [
+            try await client?.sendControl(type: "terminal.subscribe", requestID: requestID, payload: [
                 "terminal_id": .string(terminalID), "columns": .int(viewport.columns), "rows": .int(viewport.rows)
             ])
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            if pendingTerminalSubscribeRequestID == requestID {
+                pendingTerminalSubscribeRequestID = nil
+                terminalErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func retryTerminal(terminalID: String) async {
+        guard terminalID == activeTerminalID, let viewport = pendingTerminalViewport else { return }
+        await subscribe(terminalID: terminalID, viewport: viewport)
     }
 
     private func validViewport(_ viewport: TerminalRendererViewport) -> TerminalRendererViewport {
@@ -397,6 +412,8 @@ final class RemoteWorkspaceStore {
         activeTerminalID = nil
         activeStreamID = nil
         activeGeneration = nil
+        pendingTerminalSubscribeRequestID = nil
+        terminalErrorMessage = nil
         terminalSnapshotReady = false
         terminalReconnectInProgress = false
         terminalFlushTask?.cancel()
@@ -468,6 +485,10 @@ final class RemoteWorkspaceStore {
                     pendingQuickCommandListID = nil
                     isLoadingQuickCommands = false
                     quickCommandError = message.payload.value["message"]?.string ?? "Quick Commands are unavailable."
+                } else if message.requestID == pendingTerminalSubscribeRequestID ||
+                            (message.payload.value["terminal_id"]?.string == activeTerminalID && activeTerminalID != nil) {
+                    pendingTerminalSubscribeRequestID = nil
+                    terminalErrorMessage = message.payload.value["message"]?.string ?? "Terminal connection failed"
                 } else { errorMessage = message.payload.value["message"]?.string }
             }
             return
@@ -516,6 +537,8 @@ final class RemoteWorkspaceStore {
             }
         }
         if let streamID = payload["stream_id"]?.int, let generation = payload["generation"]?.int {
+            pendingTerminalSubscribeRequestID = nil
+            terminalErrorMessage = nil
             activeStreamID = UInt32(streamID)
             activeGeneration = UInt64(generation)
             // Never let output buffered for the previous stream escape into a

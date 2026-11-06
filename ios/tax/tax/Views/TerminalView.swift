@@ -15,15 +15,27 @@ struct TerminalView: View {
                 }
                 .overlay {
                     Group {
-                        if !store.terminalSnapshotReady {
+                        if let message = store.terminalErrorMessage {
+                            VStack(spacing: 12) {
+                                Text(message)
+                                    .multilineTextAlignment(.center)
+                                Button("Retry") {
+                                    Swift.Task { await store.retryTerminal(terminalID: terminal.id) }
+                                }
+                            }
+                            .foregroundStyle(.white)
+                            .padding(16)
+                            .background(.black.opacity(0.85), in: .rect(cornerRadius: 12))
+                            .padding(20)
+                        } else if !store.terminalSnapshotReady {
                             ProgressView("Loading terminal…")
                                 .tint(.white)
                                 .foregroundStyle(.white)
                                 .padding(14)
                                 .background(.black.opacity(0.72), in: .rect(cornerRadius: 12))
+                                .allowsHitTesting(false)
                         }
                     }
-                    .allowsHitTesting(false)
                 }
         }
         .navigationTitle(terminal.title)
