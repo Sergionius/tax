@@ -64,18 +64,26 @@ Environment:
 function resolveOrcaModules() {
   const appPath = process.env.ORCA_APP_PATH || DEFAULT_APP;
   const root = path.join(appPath, 'Contents', 'Resources', 'app.asar.unpacked', 'out');
-  const requireFrom = (relativePath) => {
-    const modulePath = path.join(root, relativePath);
-    if (!fs.existsSync(modulePath)) {
-      fail(`Orca ${relativePath} is unavailable in ${appPath}; runtime is incompatible`);
+  const requireFrom = (legacy, current) => {
+    for (const relative of [current, legacy]) {
+      const modulePath = path.join(root, relative);
+      if (fs.existsSync(modulePath)) return require(modulePath);
     }
-    return require(modulePath);
+    fail(`Orca ${current} (or ${legacy}) is unavailable in ${appPath}; runtime is incompatible`);
   };
+  const currentClient = fs.existsSync(path.join(root, 'shared/remote-runtime/remote-runtime-client.js'));
   return {
-    pairing: requireFrom('shared/pairing.js'),
-    remoteClient: requireFrom('shared/remote-runtime-client.js'),
-    streamProtocol: requireFrom('shared/terminal-stream-protocol.js'),
+    pairing: requireFrom('shared/pairing.js', 'shared/remote-runtime/pairing/pairing.js'),
+    remoteClient: requireFrom('shared/remote-runtime-client.js', 'shared/remote-runtime/remote-runtime-client.js'),
+    streamProtocol: requireFrom('shared/terminal-stream-protocol.js', 'shared/terminal/stream/terminal-stream-protocol.js'),
+    currentClient,
   };
+}
+
+function connectionFor(modules, pairing) {
+  return modules.currentClient
+    ? { endpoint: pairing.endpoint, hostPublicKeyB64: pairing.publicKeyB64, credential: { deviceToken: pairing.deviceToken } }
+    : pairing;
 }
 
 function pairingCode(args) {
@@ -104,9 +112,9 @@ async function inventory(args, modules) {
     const pairing = modules.pairing.parsePairingCode(code);
     if (!pairing) fail('invalid Orca pairing code', 2);
     const [status, worktrees, terminals] = await Promise.all([
-      remoteCall(modules, pairing, 'status.get'),
-      remoteCall(modules, pairing, 'worktree.ps'),
-      remoteCall(modules, pairing, 'terminal.list', { includeVisualLayouts: false }),
+      remoteCall(modules, connectionFor(modules, pairing), 'status.get'),
+      remoteCall(modules, connectionFor(modules, pairing), 'worktree.ps'),
+      remoteCall(modules, connectionFor(modules, pairing), 'terminal.list', { includeVisualLayouts: false }),
     ]);
     process.stdout.write(`${JSON.stringify({ status, worktrees, terminals }, null, 2)}\n`);
     return;
@@ -155,7 +163,7 @@ async function stream(args, modules) {
   };
 
   subscription = await modules.remoteClient.subscribeRemoteRuntimeRequest(
-    pairing,
+    connectionFor(modules, pairing),
     'terminal.multiplex',
     {},
     15_000,

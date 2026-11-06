@@ -8,6 +8,7 @@ The private Orca protocol is used only by the Mac-side `OrcaRuntimeAdapter`. It 
 |---|---:|---|---:|---|
 | Phase 0 | 1.4.188 | `2b1254d68192676e04674c2826e5f8f63992f1ad` | 36 | inventory, snapshot, and incremental stream verified |
 | Update smoke | 1.4.190 | `b755629f3776150a50d9d9ecceeefae0bd51f252` | 36 | inventory, packaged adapter, snapshot, incremental output, input, and resize verified |
+| Helper relocation | 1.4.249 | not recorded | not checked | local inventory and terminal snapshot verified; incremental output, input, resize, and reconnect not yet checked |
 
 Observed runtime capabilities required by the adapter:
 
@@ -83,7 +84,7 @@ Failures are explicit and never silently degraded:
 
 ## Distribution and compatibility
 
-TAX distributes only its own adapter code: `src/tax/orca_runtime.py` and the bundled terminal bridge (`src/tax/resources/orca-runtime-terminal-bridge.cjs`). Orca protocol helpers (`shared/pairing.js`, `shared/remote-runtime-client.js`, `shared/terminal-stream-protocol.js`) are not packaged; the bridge and the probe load them at runtime from the user's installed Orca build.
+TAX distributes only its own adapter code: `src/tax/orca_runtime.py` and the bundled terminal bridge (`src/tax/resources/orca-runtime-terminal-bridge.cjs`). Orca protocol helpers are not packaged; the bridge and probe load them at runtime from the user's installed Orca build. The legacy `shared/*.js` helper locations and the relocated `shared/remote-runtime/…` and `shared/terminal/stream/…` locations are supported. Newer Orca client helpers also require the parsed pairing offer to be wrapped as a connection with a nested credential.
 
 The adapter depends on a compatible installed Orca version. The pinned-build table above records the only version combinations that have actually been verified; nothing else is guaranteed to work. The private Orca protocol is not a stable interface: any Orca release may rename methods, change framing, or move helpers, and TAX makes no promise of stability for it. A missing helper or an incompatible wire contract must fail as an explicit compatibility error, and after every Orca update the smoke test below must be re-run.
 

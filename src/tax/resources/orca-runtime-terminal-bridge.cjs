@@ -35,15 +35,19 @@ function parseArgs(argv) {
 function loadModules() {
   const app = process.env.ORCA_APP_PATH || '/Applications/Orca.app';
   const root = path.join(app, 'Contents', 'Resources', 'app.asar.unpacked', 'out');
-  const load = (relative) => {
-    const target = path.join(root, relative);
-    if (!fs.existsSync(target)) fatal(`Orca protocol helper is unavailable: ${relative}`);
-    return require(target);
+  const load = (legacy, current) => {
+    for (const relative of [current, legacy]) {
+      const target = path.join(root, relative);
+      if (fs.existsSync(target)) return require(target);
+    }
+    fatal(`Orca protocol helper is unavailable: ${current} (or ${legacy})`);
   };
+  const currentClient = fs.existsSync(path.join(root, 'shared/remote-runtime/remote-runtime-client.js'));
   return {
-    pairing: load('shared/pairing.js'),
-    client: load('shared/remote-runtime-client.js'),
-    protocol: load('shared/terminal-stream-protocol.js'),
+    pairing: load('shared/pairing.js', 'shared/remote-runtime/pairing/pairing.js'),
+    client: load('shared/remote-runtime-client.js', 'shared/remote-runtime/remote-runtime-client.js'),
+    protocol: load('shared/terminal-stream-protocol.js', 'shared/terminal/stream/terminal-stream-protocol.js'),
+    currentClient,
   };
 }
 
@@ -62,6 +66,9 @@ async function main() {
   const modules = loadModules();
   const pairing = modules.pairing.parsePairingCode(readPairing(args.pairingCodeFile));
   if (!pairing) fatal('invalid Orca pairing code');
+  const connection = modules.currentClient
+    ? { endpoint: pairing.endpoint, hostPublicKeyB64: pairing.publicKeyB64, credential: { deviceToken: pairing.deviceToken } }
+    : pairing;
 
   const protocol = modules.protocol;
   const opcodes = protocol.TerminalStreamOpcode;
@@ -85,7 +92,7 @@ async function main() {
   };
 
   subscription = await modules.client.subscribeRemoteRuntimeRequest(
-    pairing,
+    connection,
     'terminal.multiplex',
     {},
     15_000,
